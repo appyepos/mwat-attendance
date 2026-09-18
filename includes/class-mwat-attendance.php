@@ -6,6 +6,7 @@ final class MWAT_Attendance {
     public static function instance() { return self::$instance ?: ( self::$instance = new self() ); }
 
     private function __construct() {
+        add_action( 'init', array( $this, 'ensure_walk_leader_role' ) );
         add_action( 'wp_enqueue_scripts', array( $this, 'assets' ) );
         add_shortcode( 'mwat_attendance', array( $this, 'portal' ) );
         add_action( 'admin_post_mwat_submit_attendance', array( $this, 'submit_attendance' ) );
@@ -13,6 +14,21 @@ final class MWAT_Attendance {
         add_action( 'admin_post_mwat_assign_leader', array( $this, 'assign_leader' ) );
         add_action( 'admin_post_mwat_create_leader', array( $this, 'create_leader' ) );
         add_action( 'admin_post_mwat_save_entry', array( $this, 'save_entry' ) );
+    }
+
+    public function ensure_walk_leader_role() {
+        $caps = array( 'read' => true, 'mwat_submit_attendance' => true );
+        if ( class_exists( 'WooCommerce' ) ) {
+            $customer = get_role( 'customer' );
+            if ( $customer ) $caps = array_merge( $customer->capabilities, $caps );
+        }
+        $role = get_role( 'walk_leader' );
+        if ( ! $role ) {
+            add_role( 'walk_leader', 'Walk Leader', $caps );
+        } else {
+            foreach ( $caps as $cap => $grant ) if ( $grant ) $role->add_cap( $cap );
+            $role->add_cap( 'mwat_submit_attendance' );
+        }
     }
 
     public function assets() {
@@ -37,7 +53,7 @@ final class MWAT_Attendance {
 
     private function assigned_walks() {
         if ( $this->is_manager() ) return $this->walks();
-        if ( ! is_user_logged_in() ) return array();
+        if ( ! is_user_logged_in() || ! current_user_can( 'mwat_submit_attendance' ) ) return array();
         $uid = get_current_user_id();
         return array_values( array_filter( $this->walks(), function( $walk ) use ( $uid ) {
             return $uid === (int) get_post_meta( $walk->ID, '_mwat_leader_user', true );
@@ -117,19 +133,20 @@ final class MWAT_Attendance {
     }
 
     private function walks_screen() {
-        $users = get_users( array( 'orderby' => 'display_name' ) );
+        $users = get_users( array( 'role' => 'walk_leader', 'orderby' => 'display_name' ) );
         $walks = $this->walks();
         $assigned = 0;
         foreach ( $walks as $walk ) if ( (int) get_post_meta( $walk->ID, '_mwat_leader_user', true ) ) $assigned++;
         echo '<div class="mwat-intro"><h3>Walk Leaders</h3><p>Create leader access and connect each person to their GeoDirectory walk.</p></div>';
         if ( isset($_GET['mwat_leader_status']) ) {
             $status=sanitize_key(wp_unslash($_GET['mwat_leader_status']));
-            if('created'===$status) echo '<div class="mwat-success">✓ Leader account created. You can now assign them to a walk.</div>';
+            if('created'===$status) echo '<div class="mwat-success">✓ Walk Leader account created. You can now assign them to a walk.</div>';
+            if('converted'===$status) echo '<div class="mwat-success">✓ Existing website account changed to Walk Leader. Their normal website access is preserved.</div>'; 
             if('assigned'===$status) echo '<div class="mwat-success">✓ Walk leader assignment saved.</div>';
         }
         echo '<div class="mwat-stats mwat-leader-stats"><div><strong>'.count($walks).'</strong><span>GeoDirectory walks</span></div><div><strong>'.$assigned.'</strong><span>Leader assigned</span></div><div><strong>'.max(0,count($walks)-$assigned).'</strong><span>Need a leader</span></div></div>';
         echo '<div class="mwat-grid mwat-leader-grid"><div>';
-        echo '<div class="mwat-card"><h3>Create a leader</h3><p class="mwat-help">Creates a simple WordPress account for attendance access.</p><form class="mwat-form" method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_create_leader">';
+        echo '<div class="mwat-card"><h3>Create a leader</h3><p class="mwat-help">Creates a Walk Leader account. They can still use the website normally for tickets, merchandise and purchases.</p><form class="mwat-form" method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_create_leader">';
         wp_nonce_field('mwat_create_leader','mwat_nonce');
         echo '<label>Name<input name="leader_name" type="text" required></label><label>Email address<input name="leader_email" type="email" required></label><button class="mwat-primary" type="submit">Create Leader</button></form></div>';
         echo '<div class="mwat-card mwat-spaced"><h3>Assign to a walk</h3><p class="mwat-help">A leader can be assigned to an existing GeoDirectory walk.</p><form class="mwat-form" method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_assign_leader">';
@@ -182,7 +199,13 @@ final class MWAT_Attendance {
         $name=isset($_POST['leader_name'])?sanitize_text_field(wp_unslash($_POST['leader_name'])):'';
         $email=isset($_POST['leader_email'])?sanitize_email(wp_unslash($_POST['leader_email'])):'';
         if(!$name || !is_email($email)) wp_die('Please enter a valid name and email address.');
-        if(email_exists($email)) wp_die('An account already exists with that email address. Use it in the assignment list instead.');
+        if(email_exists($email)) {
+            $existing=get_user_by('email',$email);
+            if(!$existing) wp_die('Unable to load the existing account.');
+            $existing->set_role('walk_leader');
+            $existing->add_cap('mwat_submit_attendance');
+            wp_safe_redirect(add_query_arg(array('mwat_tab'=>'walks','mwat_leader_status'=>'converted'),wp_get_referer()?:home_url('/'))); exit;
+        }
         $base=sanitize_user(strtolower(str_replace(' ','',$name)),true);
         if(!$base) $base='walkleader';
         $login=$base; $i=1;
@@ -190,7 +213,7 @@ final class MWAT_Attendance {
         $password=wp_generate_password(20,true,true);
         $uid=wp_create_user($login,$password,$email);
         if(is_wp_error($uid)) wp_die(esc_html($uid->get_error_message()));
-        wp_update_user(array('ID'=>$uid,'display_name'=>$name,'first_name'=>$name,'role'=>'subscriber'));
+        wp_update_user(array('ID'=>$uid,'display_name'=>$name,'first_name'=>$name,'role'=>'walk_leader'));
         wp_new_user_notification($uid,null,'user');
         wp_safe_redirect(add_query_arg(array('mwat_tab'=>'walks','mwat_leader_status'=>'created'),wp_get_referer()?:home_url('/'))); exit;
     }
@@ -201,7 +224,10 @@ final class MWAT_Attendance {
         $walk_id=isset($_POST['walk_id'])?absint($_POST['walk_id']):0;
         $leader_id=isset($_POST['leader_user'])?absint($_POST['leader_user']):0;
         if(!$walk_id || 'gd_place' !== get_post_type($walk_id)) wp_die('Please choose a valid GeoDirectory walk.');
-        if($leader_id && !get_user_by('id',$leader_id)) wp_die('Please choose a valid user.');
+        if($leader_id) {
+            $leader=get_user_by('id',$leader_id);
+            if(!$leader || !in_array('walk_leader',(array)$leader->roles,true)) wp_die('Please choose a valid Walk Leader.');
+        }
         update_post_meta($walk_id,'_mwat_leader_user',$leader_id);
         wp_safe_redirect(add_query_arg(array('mwat_tab'=>'walks','mwat_leader_status'=>'assigned'),wp_get_referer()?:home_url('/'))); exit;
     }
