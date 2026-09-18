@@ -6,21 +6,12 @@ final class MWAT_Attendance {
     public static function instance() { return self::$instance ?: ( self::$instance = new self() ); }
 
     private function __construct() {
-        add_action( 'init', array( $this, 'register_walk_type' ) );
         add_action( 'wp_enqueue_scripts', array( $this, 'assets' ) );
         add_shortcode( 'mwat_attendance', array( $this, 'portal' ) );
         add_action( 'admin_post_mwat_submit_attendance', array( $this, 'submit_attendance' ) );
         add_action( 'admin_post_nopriv_mwat_submit_attendance', array( $this, 'submit_attendance' ) );
-        add_action( 'admin_post_mwat_save_walk', array( $this, 'save_walk' ) );
-        add_action( 'admin_post_mwat_delete_walk', array( $this, 'delete_walk' ) );
+        add_action( 'admin_post_mwat_assign_leader', array( $this, 'assign_leader' ) );
         add_action( 'admin_post_mwat_save_entry', array( $this, 'save_entry' ) );
-    }
-
-    public function register_walk_type() {
-        register_post_type( 'mwat_walk', array(
-            'labels' => array( 'name' => 'MWAT Walks', 'singular_name' => 'MWAT Walk' ),
-            'public' => false, 'show_ui' => false, 'supports' => array( 'title' ),
-        ) );
     }
 
     public function assets() {
@@ -40,7 +31,7 @@ final class MWAT_Attendance {
     }
 
     private function walks() {
-        return get_posts( array( 'post_type' => 'mwat_walk', 'post_status' => 'publish', 'numberposts' => -1, 'orderby' => 'title', 'order' => 'ASC' ) );
+        return get_posts( array( 'post_type' => 'gd_place', 'post_status' => 'publish', 'numberposts' => -1, 'orderby' => 'title', 'order' => 'ASC' ) );
     }
 
     private function assigned_walks() {
@@ -78,7 +69,7 @@ final class MWAT_Attendance {
         if ( $this->is_manager() ) {
             $base = remove_query_arg( 'mwat_tab' );
             echo '<nav class="mwat-nav">';
-            foreach ( array( 'dashboard' => 'Dashboard', 'submit' => 'Add Attendance', 'walks' => 'Walks & Leaders', 'history' => 'History' ) as $key => $label ) {
+            foreach ( array( 'dashboard' => 'Dashboard', 'submit' => 'Add Attendance', 'walks' => 'Walk Leaders', 'history' => 'History' ) as $key => $label ) {
                 echo '<a class="' . ( $tab === $key ? 'active' : '' ) . '" href="' . esc_url( add_query_arg( 'mwat_tab', $key, $base ) ) . '">' . esc_html( $label ) . '</a>';
             }
             echo '</nav>';
@@ -99,7 +90,7 @@ final class MWAT_Attendance {
         echo '<div class="mwat-intro"><h3>This week</h3><p>See at a glance which walks have sent their attendance.</p></div>';
         echo '<div class="mwat-stats"><div><strong>' . count($walks) . '</strong><span>Total walks</span></div><div><strong>' . count($submitted) . '</strong><span>Submitted</span></div><div><strong>' . max(0,count($walks)-count($submitted)) . '</strong><span>Waiting</span></div><div><strong>' . $total . '</strong><span>Attendees</span></div></div>';
         echo '<div class="mwat-card"><div class="mwat-card-head"><h3>Walk status</h3></div><div class="mwat-list">';
-        if ( ! $walks ) echo '<div class="mwat-empty">No walks added yet. Open <strong>Walks & Leaders</strong> to add the first one.</div>';
+        if ( ! $walks ) echo '<div class="mwat-empty">No published GeoDirectory walks were found.</div>';
         foreach ( $walks as $walk ) {
             $ok = isset($submitted[$walk->ID]); $leader = get_user_by('id',(int)get_post_meta($walk->ID,'_mwat_leader_user',true));
             echo '<div class="mwat-row"><div><strong>'.esc_html($walk->post_title).'</strong><small>'.esc_html($leader ? $leader->display_name : 'No leader assigned').'</small></div><span class="mwat-status '.($ok?'done':'waiting').'">'.($ok?'Submitted':'Waiting').'</span></div>';
@@ -123,18 +114,20 @@ final class MWAT_Attendance {
     }
 
     private function walks_screen() {
-        $users = get_users( array( 'orderby'=>'display_name' ) );
-        echo '<div class="mwat-grid"><div class="mwat-card"><h3>Add a walk</h3><form class="mwat-form" method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_save_walk">';
-        wp_nonce_field('mwat_save_walk','mwat_nonce');
-        echo '<label>Walk name / location<input name="walk_name" type="text" required></label><label>Walk leader<select name="leader_user"><option value="0">Not assigned yet</option>';
+        $users = get_users( array( 'orderby' => 'display_name' ) );
+        $walks = $this->walks();
+        echo '<div class="mwat-grid"><div class="mwat-card"><h3>Assign a walk leader</h3><p class="mwat-help">Walks come directly from GeoDirectory. Nothing is duplicated here.</p><form class="mwat-form" method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_assign_leader">';
+        wp_nonce_field('mwat_assign_leader','mwat_nonce');
+        echo '<label>Existing walk<select name="walk_id" required><option value="">Choose a GeoDirectory walk</option>';
+        foreach($walks as $walk) echo '<option value="'.(int)$walk->ID.'">'.esc_html($walk->post_title).'</option>';
+        echo '</select></label><label>Walk leader<select name="leader_user"><option value="0">No leader assigned</option>';
         foreach($users as $u) echo '<option value="'.(int)$u->ID.'">'.esc_html($u->display_name.' — '.$u->user_email).'</option>';
-        echo '</select></label><button class="mwat-primary" type="submit">Add Walk</button></form></div><div class="mwat-card"><h3>Current walks</h3><div class="mwat-list">';
-        foreach($this->walks() as $walk) {
+        echo '</select></label><button class="mwat-primary" type="submit">Save Leader</button></form></div><div class="mwat-card"><h3>GeoDirectory walks</h3><div class="mwat-list">';
+        foreach($walks as $walk) {
             $leader=get_user_by('id',(int)get_post_meta($walk->ID,'_mwat_leader_user',true));
-            $url=wp_nonce_url(admin_url('admin-post.php?action=mwat_delete_walk&walk_id='.$walk->ID),'mwat_delete_walk_'.$walk->ID);
-            echo '<div class="mwat-row"><div><strong>'.esc_html($walk->post_title).'</strong><small>'.esc_html($leader?$leader->display_name:'No leader assigned').'</small></div><a class="mwat-text-action" onclick="return confirm(\'Delete this walk?\')" href="'.esc_url($url).'">Delete</a></div>';
+            echo '<div class="mwat-row"><div><strong>'.esc_html($walk->post_title).'</strong><small>'.esc_html($leader?$leader->display_name:'No leader assigned').'</small></div><span class="mwat-status '.($leader?'done':'waiting').'">'.($leader?'Assigned':'Unassigned').'</span></div>';
         }
-        if(!$this->walks()) echo '<div class="mwat-empty">No walks have been added yet.</div>';
+        if(!$walks) echo '<div class="mwat-empty">No published GeoDirectory walks were found.</div>';
         echo '</div></div></div>';
     }
 
@@ -166,21 +159,14 @@ final class MWAT_Attendance {
         wp_safe_redirect(add_query_arg(array('mwat_tab'=>'submit','mwat_status'=>'success'),wp_get_referer()?:home_url('/'))); exit;
     }
 
-    public function save_walk() {
+    public function assign_leader() {
         if(!$this->is_manager()) wp_die('Not permitted.');
-        check_admin_referer('mwat_save_walk','mwat_nonce');
-        $name=isset($_POST['walk_name'])?sanitize_text_field(wp_unslash($_POST['walk_name'])):'';
-        if(!$name) wp_die('Walk name is required.');
-        $id=wp_insert_post(array('post_type'=>'mwat_walk','post_status'=>'publish','post_title'=>$name));
-        if($id && !is_wp_error($id)) update_post_meta($id,'_mwat_leader_user',isset($_POST['leader_user'])?absint($_POST['leader_user']):0);
-        wp_safe_redirect(add_query_arg('mwat_tab','walks',wp_get_referer()?:home_url('/'))); exit;
-    }
-
-    public function delete_walk() {
-        if(!$this->is_manager()) wp_die('Not permitted.');
-        $id=isset($_GET['walk_id'])?absint($_GET['walk_id']):0;
-        check_admin_referer('mwat_delete_walk_'.$id);
-        if($id) wp_trash_post($id);
+        check_admin_referer('mwat_assign_leader','mwat_nonce');
+        $walk_id=isset($_POST['walk_id'])?absint($_POST['walk_id']):0;
+        $leader_id=isset($_POST['leader_user'])?absint($_POST['leader_user']):0;
+        if(!$walk_id || 'gd_place' !== get_post_type($walk_id)) wp_die('Please choose a valid GeoDirectory walk.');
+        if($leader_id && !get_user_by('id',$leader_id)) wp_die('Please choose a valid user.');
+        update_post_meta($walk_id,'_mwat_leader_user',$leader_id);
         wp_safe_redirect(add_query_arg('mwat_tab','walks',wp_get_referer()?:home_url('/'))); exit;
     }
 
