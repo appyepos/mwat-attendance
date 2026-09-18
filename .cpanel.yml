@@ -1,0 +1,8 @@
+---
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/me4343dsdasndtal/public_html/stagging/wp-content/plugins/mwat-attendance/
+    - /bin/mkdir -p "$DEPLOYPATH"
+    - /bin/cp -R . "$DEPLOYPATH"
+    - /bin/rm -rf "$DEPLOYPATH/.git"
+    - /bin/rm -f "$DEPLOYPATH/.cpanel.yml"
