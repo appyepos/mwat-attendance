@@ -87,15 +87,17 @@ final class MWAT_Attendance {
                 $total += (int)($e['attendees'] ?? 0);
             }
         }
-        echo '<div class="mwat-intro"><h3>This week</h3><p>See at a glance which walks have sent their attendance.</p></div>';
-        echo '<div class="mwat-stats"><div><strong>' . count($walks) . '</strong><span>Total walks</span></div><div><strong>' . count($submitted) . '</strong><span>Submitted</span></div><div><strong>' . max(0,count($walks)-count($submitted)) . '</strong><span>Waiting</span></div><div><strong>' . $total . '</strong><span>Attendees</span></div></div>';
-        echo '<div class="mwat-card"><div class="mwat-card-head"><h3>Walk status</h3></div><div class="mwat-list">';
+        echo '<div class="mwat-intro"><h3>This week</h3><p>See which walks still need to send their attendance.</p></div>';
+        echo '<div class="mwat-stats"><div><strong>' . count($walks) . '</strong><span>Total walks</span></div><div><strong>' . count($submitted) . '</strong><span>Submitted</span></div><div><strong>' . max(0,count($walks)-count($submitted)) . '</strong><span>Not submitted</span></div><div><strong>' . $total . '</strong><span>Attendees</span></div></div>';
+        echo '<div class="mwat-card"><div class="mwat-card-head mwat-dashboard-head"><div><h3>Walk status</h3><p>Not submitted walks are shown first.</p></div><input id="mwat-walk-search" class="mwat-search" type="search" placeholder="Search walks..." aria-label="Search walks"></div>';
+        echo '<div class="mwat-filters"><button type="button" class="mwat-filter active" data-filter="waiting">Not Submitted <span>'.max(0,count($walks)-count($submitted)).'</span></button><button type="button" class="mwat-filter" data-filter="done">Submitted <span>'.count($submitted).'</span></button><button type="button" class="mwat-filter" data-filter="all">All <span>'.count($walks).'</span></button></div><div id="mwat-walk-list" class="mwat-list mwat-status-grid">';
         if ( ! $walks ) echo '<div class="mwat-empty">No published GeoDirectory walks were found.</div>';
         foreach ( $walks as $walk ) {
             $ok = isset($submitted[$walk->ID]); $leader = get_user_by('id',(int)get_post_meta($walk->ID,'_mwat_leader_user',true));
-            echo '<div class="mwat-row"><div><strong>'.esc_html($walk->post_title).'</strong><small>'.esc_html($leader ? $leader->display_name : 'No leader assigned').'</small></div><span class="mwat-status '.($ok?'done':'waiting').'">'.($ok?'Submitted':'Waiting').'</span></div>';
+            echo '<div class="mwat-row mwat-walk-row" data-status="'.($ok?'done':'waiting').'" data-search="'.esc_attr(strtolower($walk->post_title.' '.($leader?$leader->display_name:''))).'"><div><strong>'.esc_html($walk->post_title).'</strong><small>'.esc_html($leader ? $leader->display_name : 'No leader assigned').'</small></div><span class="mwat-status '.($ok?'done':'waiting').'">'.($ok?'Submitted':'Not submitted').'</span></div>';
         }
-        echo '</div></div>';
+        echo '</div><div id="mwat-no-results" class="mwat-empty" hidden>No walks match your search.</div></div>';
+        echo '<script>(function(){var box=document.getElementById("mwat-walk-search"),rows=[].slice.call(document.querySelectorAll(".mwat-walk-row")),buttons=[].slice.call(document.querySelectorAll(".mwat-filter")),empty=document.getElementById("mwat-no-results"),filter="waiting";function draw(){var q=(box.value||"").toLowerCase().trim(),shown=0;rows.forEach(function(r){var yes=(filter==="all"||r.dataset.status===filter)&&(!q||r.dataset.search.indexOf(q)>-1);r.style.display=yes?"":"none";if(yes)shown++;});empty.hidden=shown>0;}buttons.forEach(function(b){b.addEventListener("click",function(){buttons.forEach(function(x){x.classList.remove("active")});b.classList.add("active");filter=b.dataset.filter;draw();});});box.addEventListener("input",draw);draw();})();</script>';
     }
 
     private function leader_screen() {
