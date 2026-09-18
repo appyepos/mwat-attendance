@@ -13,6 +13,7 @@ final class MWAT_Attendance {
         add_action( 'admin_post_nopriv_mwat_submit_attendance', array( $this, 'submit_attendance' ) );
         add_action( 'admin_post_mwat_assign_leader', array( $this, 'assign_leader' ) );
         add_action( 'admin_post_mwat_create_leader', array( $this, 'create_leader' ) );
+        add_action( 'admin_post_mwat_regenerate_leader_link', array( $this, 'regenerate_leader_link' ) );
         add_action( 'admin_post_mwat_save_entry', array( $this, 'save_entry' ) );
         add_action( 'admin_post_mwat_import_test_leaders', array( $this, 'import_test_leaders' ) );
         add_action( 'admin_post_mwat_delete_test_leaders', array( $this, 'delete_test_leaders' ) );
@@ -82,9 +83,45 @@ final class MWAT_Attendance {
         } ) );
     }
 
+    private function leader_token( $user_id, $regenerate=false ) {
+        $token=$regenerate?'':(string)get_user_meta($user_id,'_mwat_attendance_token',true);
+        if(!$token){$token=bin2hex(random_bytes(24));update_user_meta($user_id,'_mwat_attendance_token',$token);}
+        return $token;
+    }
+
+    private function leader_by_token( $token ) {
+        if(!preg_match('/^[a-f0-9]{48}$/',$token)) return false;
+        $users=get_users(array('meta_key'=>'_mwat_attendance_token','meta_value'=>$token,'number'=>1));
+        return $users?reset($users):false;
+    }
+
+    private function leader_walk( $user_id ) {
+        foreach($this->walks() as $walk) if((int)get_post_meta($walk->ID,'_mwat_leader_user',true)===(int)$user_id) return $walk;
+        return false;
+    }
+
+    private function leader_link( $user_id ) {
+        return add_query_arg('mwat_key',$this->leader_token($user_id),get_permalink());
+    }
+
+    private function send_leader_welcome( $user_id, $walk_id ) {
+        $user=get_user_by('id',$user_id); if(!$user||!$walk_id) return false;
+        $walk=get_post($walk_id); if(!$walk) return false;
+        $link=$this->leader_link($user_id);
+        $subject='Your MWAT weekly attendance link';
+        $message="Hi {$user->display_name},\n\nYou have been set up as the Walk Leader for {$walk->post_title}.\n\nEach week, after your walk, please use your personal link below to send your attendance numbers:\n\n{$link}\n\nPlease save or bookmark this link. You will use the same link every week.\n\nYou will be asked for the walk date, whether the walk took place, attendees, new attendees and dogs. If the walk is cancelled, please still submit the form and select the cancellation reason.\n\nThank you for supporting Men Walking & Talking.";
+        return wp_mail($user->user_email,$subject,$message);
+    }
+
     public function portal() {
+        $token=isset($_GET['mwat_key'])?sanitize_text_field(wp_unslash($_GET['mwat_key'])):'';
+        if($token){
+            $leader=$this->leader_by_token($token);
+            if(!$leader) return '<div class="mwat-shell"><div class="mwat-login"><h2>Walk Attendance</h2><p>This attendance link is no longer valid. Please contact MWAT for a new link.</p></div></div>';
+            ob_start();echo '<div class="mwat-shell">';$this->public_leader_screen($leader,$token);echo '</div>';return ob_get_clean();
+        }
         if ( ! is_user_logged_in() ) {
-            return '<div class="mwat-shell"><div class="mwat-login"><h2>Walk Attendance</h2><p>Please log in to record or manage walk attendance.</p>' . wp_login_form( array( 'echo' => false, 'remember' => true ) ) . '</div></div>';
+            return '<div class="mwat-shell"><div class="mwat-login"><h2>Walk Attendance</h2><p>This page is for MWAT managers. Walk Leaders should use their personal attendance link.</p>' . wp_login_form( array( 'echo' => false, 'remember' => true ) ) . '</div></div>';
         }
 
         $tab = isset( $_GET['mwat_tab'] ) ? sanitize_key( wp_unslash( $_GET['mwat_tab'] ) ) : ( $this->is_manager() ? 'dashboard' : 'submit' );
@@ -156,6 +193,21 @@ final class MWAT_Attendance {
         return $label;
     }
 
+    private function public_leader_screen( $leader, $token ) {
+        $walk=$this->leader_walk($leader->ID);
+        if(!$walk){echo '<div class="mwat-form-card"><div class="mwat-empty"><strong>No walk assigned</strong><br>Please contact MWAT.</div></div>';return;}
+        $today=wp_date('Y-m-d'); $entries=$this->entries(); $existing=$this->weekly_entry_index($walk->ID,$today,$entries);
+        echo '<div class="mwat-form-card mwat-leader-submit"><div class="mwat-leader-welcome"><span class="mwat-eyebrow">MWAT Walk Attendance</span><h3>Hi, '.esc_html($leader->display_name).'</h3><p><strong>'.esc_html($walk->post_title).'</strong><br>Send your weekly attendance. No login required.</p></div>';
+        if(isset($_GET['mwat_status'])&&'success'===sanitize_key(wp_unslash($_GET['mwat_status']))){echo '<div class="mwat-submit-success"><span class="mwat-success-icon">✓</span><div><h3>Weekly response sent</h3><p>Thank you. Your response has been recorded.</p></div></div></div>';return;}
+        if(false!==$existing){echo '<div class="mwat-submit-success"><span class="mwat-success-icon">✓</span><div><h3>This week is complete</h3><p>Attendance for this walk has already been submitted this week. If something needs correcting, please contact MWAT.</p></div></div></div>';return;}
+        echo '<form class="mwat-form mwat-quick-form" method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_submit_attendance"><input type="hidden" name="mwat_key" value="'.esc_attr($token).'"><input type="hidden" name="walk_id" value="'.(int)$walk->ID.'">';
+        wp_nonce_field('mwat_submit_attendance','mwat_nonce');
+        echo '<div class="mwat-assigned-walk"><span>Your walk</span><strong>'.esc_html($walk->post_title).'</strong></div><label class="mwat-date-field">Walk date<input name="walk_date" type="date" max="'.esc_attr($today).'" value="'.esc_attr($today).'" required></label>';
+        echo '<fieldset class="mwat-took-place"><legend>Did the walk take place?</legend><label><input type="radio" name="walk_status" value="attendance" checked> <span><strong>Yes</strong><small>Enter the attendance figures</small></span></label><label><input type="radio" name="walk_status" value="cancelled"> <span><strong>No — walk cancelled</strong><small>Tell us why it was cancelled</small></span></label></fieldset>';
+        echo '<div id="mwat-attendance-fields" class="mwat-number-stack"><label><span><strong>Attendees</strong></span><input name="attendees" type="number" min="0" inputmode="numeric" required></label><label><span><strong>New attendees</strong></span><input name="new_attendees" type="number" min="0" inputmode="numeric" required></label><label><span><strong>Dogs</strong></span><input name="dogs" type="number" min="0" inputmode="numeric" required></label></div><div id="mwat-cancel-fields" class="mwat-cancel-fields" hidden><label>Reason for cancellation<select name="cancel_reason"><option value="weather">Weather / rain</option><option value="illness">Leader illness / unavailable</option><option value="location">Venue / location issue</option><option value="low_attendance">Low / no attendance</option><option value="other">Other</option></select></label><label id="mwat-cancel-other" hidden>Other reason<input type="text" name="cancel_other" maxlength="200"></label></div>';
+        echo '<button class="mwat-primary mwat-submit-big" type="submit">Send Weekly Update</button><p class="mwat-submit-note">Your personal link stays the same each week.</p></form><script>(function(){var radios=document.querySelectorAll("input[name=walk_status]"),a=document.getElementById("mwat-attendance-fields"),c=document.getElementById("mwat-cancel-fields"),sel=document.querySelector("select[name=cancel_reason]"),other=document.getElementById("mwat-cancel-other");function draw(){var v=document.querySelector("input[name=walk_status]:checked").value;a.hidden=v==="cancelled";c.hidden=v!=="cancelled";if(v==="cancelled")reason();}function reason(){other.hidden=sel.value!=="other";}radios.forEach(function(r){r.addEventListener("change",draw)});sel.addEventListener("change",reason);draw();})();</script></div>';
+    }
+
     private function leader_screen() {
         $walks = $this->assigned_walks();
         if ( $this->is_manager() ) $walks = $this->walks();
@@ -200,7 +252,7 @@ final class MWAT_Attendance {
             $status=sanitize_key(wp_unslash($_GET['mwat_leader_status']));
             if('created'===$status) echo '<div class="mwat-success">✓ Walk Leader account created. You can now assign them to a walk.</div>';
             if('converted'===$status) echo '<div class="mwat-success">✓ Existing website account changed to Walk Leader. Their normal website access is preserved.</div>'; 
-            if('assigned'===$status) echo '<div class="mwat-success">✓ Walk leader assignment saved.</div>';
+            if('assigned'===$status) echo '<div class="mwat-success">✓ Walk leader assignment saved.</div>'; if('regenerated'===$status) echo '<div class="mwat-success">✓ A new private attendance link has been generated'.(!empty($_GET['mwat_email_sent'])?' and emailed to the leader':'').'. The old link no longer works.</div>'; 
         }
         echo '<div class="mwat-stats mwat-leader-stats"><div><strong>'.count($walks).'</strong><span>GeoDirectory walks</span></div><div><strong>'.$assigned.'</strong><span>Leader assigned</span></div><div><strong>'.max(0,count($walks)-$assigned).'</strong><span>Need a leader</span></div></div>';
         $test_users=get_users(array('meta_key'=>'_mwat_test_leader','meta_value'=>'1'));
@@ -213,9 +265,9 @@ final class MWAT_Attendance {
         echo '<div class="mwat-card mwat-test-tools"><h3>7–13 September demo week</h3><p class="mwat-help">Create a mixed week for demonstrating the dashboard: 15 walks not submitted, 3 cancelled and all remaining walks submitted.</p><form method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_seed_demo_week">';wp_nonce_field('mwat_seed_demo_week','mwat_nonce');echo '<button class="mwat-primary" type="submit">Create Demo Week</button></form></div>';
         echo '<div class="mwat-card mwat-test-tools"><h3>This week: 14–20 September</h3><p class="mwat-help">Create the same dashboard mix for this week: 15 not submitted, 3 cancelled and all remaining walks submitted. Test submissions are dated no later than today.</p><form method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_seed_current_demo_week">';wp_nonce_field('mwat_seed_current_demo_week','mwat_nonce');echo '<button class="mwat-primary" type="submit">Create This Week Demo</button></form></div>';
         echo '<div class="mwat-grid mwat-leader-grid"><div>';
-        echo '<div class="mwat-card"><h3>Create a leader</h3><p class="mwat-help">Creates a Walk Leader account. They can still use the website normally for tickets, merchandise and purchases.</p><form class="mwat-form" method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_create_leader">';
+        echo '<div class="mwat-card"><h3>Create a leader</h3><p class="mwat-help">Add the leader and choose their walk. A secure permanent attendance link is generated and emailed automatically — no login needed.</p><form class="mwat-form" method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_create_leader">';
         wp_nonce_field('mwat_create_leader','mwat_nonce');
-        echo '<label>Name<input name="leader_name" type="text" required></label><label>Email address<input name="leader_email" type="email" required></label><button class="mwat-primary" type="submit">Create Leader</button></form></div>';
+        echo '<label>Name<input name="leader_name" type="text" required></label><label>Email address<input name="leader_email" type="email" required></label><label>Walk<select name="walk_id" required><option value="">Choose a walk</option>';foreach($walks as $walk)echo '<option value="'.(int)$walk->ID.'">'.esc_html($walk->post_title).'</option>';echo '</select></label><button class="mwat-primary" type="submit">Create Leader & Send Link</button></form></div>'; 
         echo '<div class="mwat-card mwat-spaced"><h3>Assign to a walk</h3><p class="mwat-help">A leader can be assigned to an existing GeoDirectory walk.</p><form class="mwat-form" method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_assign_leader">';
         wp_nonce_field('mwat_assign_leader','mwat_nonce');
         echo '<label>Walk<select name="walk_id" required><option value="">Choose a walk</option>';
@@ -226,7 +278,7 @@ final class MWAT_Attendance {
         echo '<div class="mwat-card"><div class="mwat-card-head mwat-dashboard-head"><div><h3>Walk assignments</h3><p>Search by walk or leader.</p></div><input id="mwat-leader-search" class="mwat-search" type="search" placeholder="Search walks or leaders..."></div><div class="mwat-filters"><button type="button" class="mwat-leader-filter active" data-filter="unassigned">Need a leader <span>'.max(0,count($walks)-$assigned).'</span></button><button type="button" class="mwat-leader-filter" data-filter="assigned">Assigned <span>'.$assigned.'</span></button><button type="button" class="mwat-leader-filter" data-filter="all">All <span>'.count($walks).'</span></button></div><div class="mwat-list">';
         foreach($walks as $walk) {
             $leader=get_user_by('id',(int)get_post_meta($walk->ID,'_mwat_leader_user',true));
-            echo '<div class="mwat-row mwat-leader-row" data-status="'.($leader?'assigned':'unassigned').'" data-search="'.esc_attr(strtolower($walk->post_title.' '.($leader?$leader->display_name.' '.$leader->user_email:''))).'"><div><strong>'.esc_html($walk->post_title).'</strong><small>'.esc_html($leader?$leader->display_name.' — '.$leader->user_email:'No leader assigned').'</small></div><span class="mwat-status '.($leader?'done':'waiting').'">'.($leader?'Assigned':'Needs leader').'</span></div>';
+            echo '<div class="mwat-row mwat-leader-row" data-status="'.($leader?'assigned':'unassigned').'" data-search="'.esc_attr(strtolower($walk->post_title.' '.($leader?$leader->display_name.' '.$leader->user_email:''))).'"><div><strong>'.esc_html($walk->post_title).'</strong><small>'.esc_html($leader?$leader->display_name.' — '.$leader->user_email:'No leader assigned').'</small>';if($leader){$link=$this->leader_link($leader->ID);echo '<div class="mwat-leader-link"><input type="text" readonly value="'.esc_attr($link).'" onclick="this.select()"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_regenerate_leader_link"><input type="hidden" name="leader_user" value="'.(int)$leader->ID.'"><input type="hidden" name="send_email" value="1">';wp_nonce_field('mwat_regenerate_leader_link','mwat_nonce');echo '<button class="mwat-secondary" type="submit" onclick="return confirm(\'Generate a new link? The old link will immediately stop working.\')">New Link & Email</button></form></div>';}echo '</div><span class="mwat-status '.($leader?'done':'waiting').'">'.($leader?'Assigned':'Needs leader').'</span></div>';
         }
         echo '</div><div id="mwat-leader-empty" class="mwat-empty" hidden>No matching walks found.</div></div></div>';
         echo '<script>(function(){var box=document.getElementById("mwat-leader-search"),rows=[].slice.call(document.querySelectorAll(".mwat-leader-row")),buttons=[].slice.call(document.querySelectorAll(".mwat-leader-filter")),empty=document.getElementById("mwat-leader-empty"),filter="unassigned";function draw(){var q=(box.value||"").toLowerCase().trim(),n=0;rows.forEach(function(r){var show=(filter==="all"||r.dataset.status===filter)&&(!q||r.dataset.search.indexOf(q)>-1);r.style.display=show?"":"none";if(show)n++;});empty.hidden=n>0;}buttons.forEach(function(b){b.addEventListener("click",function(){buttons.forEach(function(x){x.classList.remove("active")});b.classList.add("active");filter=b.dataset.filter;draw();});});box.addEventListener("input",draw);draw();})();</script>';
@@ -321,59 +373,33 @@ final class MWAT_Attendance {
     }
 
     public function submit_attendance() {
-        if(!is_user_logged_in()) auth_redirect();
+        $token=isset($_POST['mwat_key'])?sanitize_text_field(wp_unslash($_POST['mwat_key'])):'';
+        $public_leader=$token?$this->leader_by_token($token):false;
+        if(!$public_leader&&!is_user_logged_in()) wp_die('This attendance link is invalid.');
         check_admin_referer('mwat_submit_attendance','mwat_nonce');
-        $walk_id=isset($_POST['walk_id'])?absint($_POST['walk_id']):0;
-        $date=isset($_POST['walk_date'])?sanitize_text_field(wp_unslash($_POST['walk_date'])):'';
-        $type=isset($_POST['walk_status'])?sanitize_key(wp_unslash($_POST['walk_status'])):'attendance';
-        $allowed=wp_list_pluck($this->assigned_walks(),'ID');
-        if(!$walk_id || !in_array($walk_id,$allowed,true) || !preg_match('/^\d{4}-\d{2}-\d{2}$/',$date) || !in_array($type,array('attendance','cancelled'),true)) wp_die('Please check the weekly update.');
-        $entry=array('walk_id'=>$walk_id,'date'=>$date,'type'=>$type,'user_id'=>get_current_user_id(),'submitted_at'=>current_time('mysql'));
-        if('cancelled'===$type) {
-            $reason=isset($_POST['cancel_reason'])?sanitize_key(wp_unslash($_POST['cancel_reason'])):'';
-            $valid=array('weather','illness','location','low_attendance','other');
-            if(!in_array($reason,$valid,true)) wp_die('Please choose a cancellation reason.');
-            $other=isset($_POST['cancel_other'])?sanitize_text_field(wp_unslash($_POST['cancel_other'])):'';
-            if('other'===$reason && !$other) wp_die('Please enter the cancellation reason.');
-            $entry['cancel_reason']=$reason; $entry['cancel_other']=$other;
-            $entry['attendees']=0; $entry['new_attendees']=0; $entry['dogs']=0;
-        } else {
-            $att=isset($_POST['attendees'])?absint($_POST['attendees']):0;
-            $new=isset($_POST['new_attendees'])?absint($_POST['new_attendees']):0;
-            $dogs=isset($_POST['dogs'])?absint($_POST['dogs']):0;
-            if($new>$att) wp_die('New attendees cannot be higher than total attendees.');
-            $entry['attendees']=$att; $entry['new_attendees']=$new; $entry['dogs']=$dogs;
-        }
-        $entries=$this->entries();
-        $existing=$this->weekly_entry_index($walk_id,$date,$entries);
-        if(false!==$existing) $entries[$existing]=$entry; else $entries[]=$entry;
-        update_option('mwat_attendance_entries',array_values($entries),false);
-        wp_safe_redirect(add_query_arg(array('mwat_tab'=>'submit','mwat_status'=>'success'),wp_get_referer()?:home_url('/'))); exit;
+        $walk_id=isset($_POST['walk_id'])?absint($_POST['walk_id']):0;$date=isset($_POST['walk_date'])?sanitize_text_field(wp_unslash($_POST['walk_date'])):'';$type=isset($_POST['walk_status'])?sanitize_key(wp_unslash($_POST['walk_status'])):'attendance';
+        if($public_leader){$walk=$this->leader_walk($public_leader->ID);$allowed=$walk?array($walk->ID):array();$user_id=$public_leader->ID;}else{$allowed=wp_list_pluck($this->assigned_walks(),'ID');$user_id=get_current_user_id();}
+        if(!$walk_id||!in_array($walk_id,$allowed,true)||!preg_match('/^\d{4}-\d{2}-\d{2}$/',$date)||!in_array($type,array('attendance','cancelled'),true)) wp_die('Please check the weekly update.');
+        if($date>wp_date('Y-m-d')) wp_die('Future walk dates cannot be submitted.');
+        $entries=$this->entries();$existing=$this->weekly_entry_index($walk_id,$date,$entries);if(false!==$existing) wp_die('A response has already been submitted for this walk and week. Please contact MWAT if it needs correcting.');
+        $entry=array('walk_id'=>$walk_id,'date'=>$date,'type'=>$type,'user_id'=>$user_id,'submitted_at'=>current_time('mysql'));
+        if('cancelled'===$type){$reason=isset($_POST['cancel_reason'])?sanitize_key(wp_unslash($_POST['cancel_reason'])):'';$valid=array('weather','illness','location','low_attendance','other');if(!in_array($reason,$valid,true))wp_die('Please choose a cancellation reason.');$other=isset($_POST['cancel_other'])?sanitize_text_field(wp_unslash($_POST['cancel_other'])):'';if('other'===$reason&&!$other)wp_die('Please enter the cancellation reason.');$entry['cancel_reason']=$reason;$entry['cancel_other']=$other;$entry['attendees']=0;$entry['new_attendees']=0;$entry['dogs']=0;}else{$att=isset($_POST['attendees'])?absint($_POST['attendees']):0;$new=isset($_POST['new_attendees'])?absint($_POST['new_attendees']):0;$dogs=isset($_POST['dogs'])?absint($_POST['dogs']):0;if($new>$att)wp_die('New attendees cannot be higher than total attendees.');$entry['attendees']=$att;$entry['new_attendees']=$new;$entry['dogs']=$dogs;}
+        $entries[]=$entry;update_option('mwat_attendance_entries',array_values($entries),false);
+        $return=$public_leader?add_query_arg(array('mwat_key'=>$token,'mwat_status'=>'success'),get_permalink()):add_query_arg(array('mwat_tab'=>'submit','mwat_status'=>'success'),wp_get_referer()?:home_url('/'));wp_safe_redirect($return);exit;
     }
 
     public function create_leader() {
-        if(!$this->is_manager()) wp_die('Not permitted.');
-        check_admin_referer('mwat_create_leader','mwat_nonce');
-        $name=isset($_POST['leader_name'])?sanitize_text_field(wp_unslash($_POST['leader_name'])):'';
-        $email=isset($_POST['leader_email'])?sanitize_email(wp_unslash($_POST['leader_email'])):'';
-        if(!$name || !is_email($email)) wp_die('Please enter a valid name and email address.');
-        if(email_exists($email)) {
-            $existing=get_user_by('email',$email);
-            if(!$existing) wp_die('Unable to load the existing account.');
-            $existing->set_role('walk_leader');
-            $existing->add_cap('mwat_submit_attendance');
-            wp_safe_redirect(add_query_arg(array('mwat_tab'=>'walks','mwat_leader_status'=>'converted'),wp_get_referer()?:home_url('/'))); exit;
-        }
-        $base=sanitize_user(strtolower(str_replace(' ','',$name)),true);
-        if(!$base) $base='walkleader';
-        $login=$base; $i=1;
-        while(username_exists($login)){ $login=$base.$i; $i++; }
-        $password=wp_generate_password(20,true,true);
-        $uid=wp_create_user($login,$password,$email);
-        if(is_wp_error($uid)) wp_die(esc_html($uid->get_error_message()));
-        wp_update_user(array('ID'=>$uid,'display_name'=>$name,'first_name'=>$name,'role'=>'walk_leader'));
-        wp_new_user_notification($uid,null,'user');
-        wp_safe_redirect(add_query_arg(array('mwat_tab'=>'walks','mwat_leader_status'=>'created'),wp_get_referer()?:home_url('/'))); exit;
+        if(!$this->is_manager()) wp_die('Not permitted.');check_admin_referer('mwat_create_leader','mwat_nonce');
+        $name=isset($_POST['leader_name'])?sanitize_text_field(wp_unslash($_POST['leader_name'])):'';$email=isset($_POST['leader_email'])?sanitize_email(wp_unslash($_POST['leader_email'])):'';$walk_id=isset($_POST['walk_id'])?absint($_POST['walk_id']):0;
+        if(!$name||!is_email($email)||!$walk_id||'gd_place'!==get_post_type($walk_id))wp_die('Please enter a valid name, email and walk.');
+        $uid=email_exists($email);
+        if($uid){$user=new WP_User($uid);$user->set_role('walk_leader');$user->add_cap('mwat_submit_attendance');$status='converted';}else{$base=sanitize_user(strtolower(str_replace(' ','',$name)),true)?:'walkleader';$login=$base;$i=1;while(username_exists($login)){$login=$base.$i;$i++;}$uid=wp_create_user($login,wp_generate_password(24,true,true),$email);if(is_wp_error($uid))wp_die(esc_html($uid->get_error_message()));wp_update_user(array('ID'=>$uid,'display_name'=>$name,'first_name'=>$name,'role'=>'walk_leader'));$status='created';}
+        $this->leader_token($uid,true);update_post_meta($walk_id,'_mwat_leader_user',$uid);$sent=$this->send_leader_welcome($uid,$walk_id);
+        wp_safe_redirect(add_query_arg(array('mwat_tab'=>'walks','mwat_leader_status'=>$status,'mwat_email_sent'=>$sent?1:0),wp_get_referer()?:home_url('/')));exit;
+    }
+
+    public function regenerate_leader_link() {
+        if(!$this->is_manager())wp_die('Not permitted.');check_admin_referer('mwat_regenerate_leader_link','mwat_nonce');$uid=isset($_POST['leader_user'])?absint($_POST['leader_user']):0;$walk=$this->leader_walk($uid);if(!$uid||!$walk)wp_die('Leader assignment not found.');$this->leader_token($uid,true);$sent=!empty($_POST['send_email'])?$this->send_leader_welcome($uid,$walk->ID):false;wp_safe_redirect(add_query_arg(array('mwat_tab'=>'walks','mwat_leader_status'=>'regenerated','mwat_email_sent'=>$sent?1:0),wp_get_referer()?:home_url('/')));exit;
     }
 
     public function assign_leader() {
