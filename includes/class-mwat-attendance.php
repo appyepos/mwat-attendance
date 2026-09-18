@@ -14,6 +14,8 @@ final class MWAT_Attendance {
         add_action( 'admin_post_mwat_assign_leader', array( $this, 'assign_leader' ) );
         add_action( 'admin_post_mwat_create_leader', array( $this, 'create_leader' ) );
         add_action( 'admin_post_mwat_save_entry', array( $this, 'save_entry' ) );
+        add_action( 'admin_post_mwat_import_test_leaders', array( $this, 'import_test_leaders' ) );
+        add_action( 'admin_post_mwat_delete_test_leaders', array( $this, 'delete_test_leaders' ) );
         add_action( 'admin_post_mwat_export_csv', array( $this, 'export_csv' ) );
     }
 
@@ -189,6 +191,7 @@ final class MWAT_Attendance {
         $assigned = 0;
         foreach ( $walks as $walk ) if ( (int) get_post_meta( $walk->ID, '_mwat_leader_user', true ) ) $assigned++;
         echo '<div class="mwat-intro"><h3>Walk Leaders</h3><p>Create leader access and connect each person to their GeoDirectory walk.</p></div>';
+        if(isset($_GET['mwat_test_status'])){$ts=sanitize_key(wp_unslash($_GET['mwat_test_status']));if('imported'===$ts)echo '<div class="mwat-success">✓ Test leaders imported: '.absint($_GET['created']??0).' created, '.absint($_GET['assigned']??0).' assigned, '.absint($_GET['skipped']??0).' skipped (no leader name or import issue).</div>';if('deleted'===$ts)echo '<div class="mwat-success">✓ '.absint($_GET['deleted']??0).' imported test leader accounts deleted and their assignments removed.</div>';}
         if ( isset($_GET['mwat_leader_status']) ) {
             $status=sanitize_key(wp_unslash($_GET['mwat_leader_status']));
             if('created'===$status) echo '<div class="mwat-success">✓ Walk Leader account created. You can now assign them to a walk.</div>';
@@ -196,6 +199,12 @@ final class MWAT_Attendance {
             if('assigned'===$status) echo '<div class="mwat-success">✓ Walk leader assignment saved.</div>';
         }
         echo '<div class="mwat-stats mwat-leader-stats"><div><strong>'.count($walks).'</strong><span>GeoDirectory walks</span></div><div><strong>'.$assigned.'</strong><span>Leader assigned</span></div><div><strong>'.max(0,count($walks)-$assigned).'</strong><span>Need a leader</span></div></div>';
+        $test_users=get_users(array('meta_key'=>'_mwat_test_leader','meta_value'=>'1'));
+        echo '<div class="mwat-card mwat-test-tools"><h3>Staging test leaders</h3><p class="mwat-help">Create test Walk Leader users from the GeoDirectory leader names and automatically assign them to their walks. These accounts are tagged so they can be safely removed later.</p><div class="mwat-test-summary"><strong>'.count($test_users).'</strong> test leader account'.(count($test_users)===1?'':'s').' currently exist.</div><div class="mwat-test-actions"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_import_test_leaders">';
+        wp_nonce_field('mwat_import_test_leaders','mwat_nonce');
+        echo '<button class="mwat-primary" type="submit">Import Test Leaders</button></form>';
+        if($test_users){echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'" onsubmit="return confirm(\'Delete all imported MWAT test leaders and remove their walk assignments?\');"><input type="hidden" name="action" value="mwat_delete_test_leaders">';wp_nonce_field('mwat_delete_test_leaders','mwat_nonce');echo '<button class="mwat-secondary" type="submit">Delete Test Leaders</button></form>';}
+        echo '</div><small>Test password: <strong>mwat123!!</strong> · Test emails use @mwat1.com</small></div>';
         echo '<div class="mwat-grid mwat-leader-grid"><div>';
         echo '<div class="mwat-card"><h3>Create a leader</h3><p class="mwat-help">Creates a Walk Leader account. They can still use the website normally for tickets, merchandise and purchases.</p><form class="mwat-form" method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_create_leader">';
         wp_nonce_field('mwat_create_leader','mwat_nonce');
@@ -371,4 +380,45 @@ final class MWAT_Attendance {
         update_option('mwat_attendance_entries',array_values($entries),false);
         wp_safe_redirect(add_query_arg(array('mwat_tab'=>'history','mwat_edit_status'=>'saved'),remove_query_arg(array('mwat_edit'),wp_get_referer()?:home_url('/')))); exit;
     }
+    private function staging_only() {
+        $home=home_url('/');
+        return false!==strpos($home,'/stagging/');
+    }
+
+    private function test_leader_email( $name, $walk_title, $walk_id ) {
+        $name=sanitize_title($name); $walk=sanitize_title(preg_replace('/\s+Walk$/i','',$walk_title));
+        $name=str_replace('-','',$name); $walk=str_replace('-','',$walk);
+        if(!$name)$name='leader'; if(!$walk)$walk='walk'.$walk_id;
+        $base=$name.'.'.$walk; $email=$base.'@mwat1.com'; $n=2;
+        while(($uid=email_exists($email)) && (int)get_user_meta($uid,'_mwat_test_walk_id',true)!==(int)$walk_id){$email=$base.$n.'@mwat1.com';$n++;}
+        return $email;
+    }
+
+    public function import_test_leaders() {
+        if(!$this->is_manager()||!$this->staging_only()) wp_die('This test import is only available to managers on staging.');
+        check_admin_referer('mwat_import_test_leaders','mwat_nonce');
+        global $wpdb; $table=$wpdb->prefix.'geodir_gd_place_detail'; $walks=$this->walks(); $created=0;$assigned=0;$skipped=0;
+        foreach($walks as $walk){
+            $name=$wpdb->get_var($wpdb->prepare("SELECT leader_first_name FROM {$table} WHERE post_id=%d",$walk->ID));
+            $name=trim((string)$name); if(!$name){$skipped++;continue;}
+            $email=$this->test_leader_email($name,$walk->post_title,$walk->ID); $uid=email_exists($email);
+            if(!$uid){
+                $base=sanitize_user(strtolower($name.'_'.$walk->post_name),true);if(!$base)$base='mwatleader_'.$walk->ID;$login=$base;$n=2;while(username_exists($login)){$login=$base.$n;$n++;}
+                $uid=wp_create_user($login,'mwat123!!',$email);if(is_wp_error($uid)){$skipped++;continue;}
+                wp_update_user(array('ID'=>$uid,'display_name'=>$name,'first_name'=>$name,'role'=>'walk_leader'));$created++;
+            } else {
+                $user=new WP_User($uid);$user->set_role('walk_leader');$user->add_cap('mwat_submit_attendance');
+            }
+            update_user_meta($uid,'_mwat_test_leader','1');update_user_meta($uid,'_mwat_test_walk_id',$walk->ID);update_post_meta($walk->ID,'_mwat_leader_user',$uid);$assigned++;
+        }
+        wp_safe_redirect(add_query_arg(array('mwat_tab'=>'walks','mwat_test_status'=>'imported','created'=>$created,'assigned'=>$assigned,'skipped'=>$skipped),wp_get_referer()?:home_url('/')));exit;
+    }
+
+    public function delete_test_leaders() {
+        if(!$this->is_manager()||!$this->staging_only()) wp_die('This cleanup is only available to managers on staging.');
+        check_admin_referer('mwat_delete_test_leaders','mwat_nonce');require_once ABSPATH.'wp-admin/includes/user.php';$users=get_users(array('meta_key'=>'_mwat_test_leader','meta_value'=>'1'));$deleted=0;
+        foreach($users as $user){$walk_id=(int)get_user_meta($user->ID,'_mwat_test_walk_id',true);if($walk_id&&(int)get_post_meta($walk_id,'_mwat_leader_user',true)===$user->ID)delete_post_meta($walk_id,'_mwat_leader_user');if(wp_delete_user($user->ID))$deleted++;}
+        wp_safe_redirect(add_query_arg(array('mwat_tab'=>'walks','mwat_test_status'=>'deleted','deleted'=>$deleted),wp_get_referer()?:home_url('/')));exit;
+    }
+
 }
