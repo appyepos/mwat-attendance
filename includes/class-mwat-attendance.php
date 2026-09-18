@@ -120,16 +120,31 @@ final class MWAT_Attendance {
     private function leader_screen() {
         $walks = $this->assigned_walks();
         if ( $this->is_manager() ) $walks = $this->walks();
-        echo '<div class="mwat-form-card"><div class="mwat-intro"><h3>Record attendance</h3><p>Enter the figures for the walk and press submit.</p></div>';
-        if ( isset($_GET['mwat_status']) && 'success' === sanitize_key(wp_unslash($_GET['mwat_status'])) ) echo '<div class="mwat-success">✓ Attendance recorded successfully.</div>';
-        if ( ! $walks ) { echo '<div class="mwat-empty">No walk is assigned to this account yet.</div></div>'; return; }
-        echo '<form class="mwat-form" method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_submit_attendance">';
+        $is_leader = ! $this->is_manager();
+        echo '<div class="mwat-form-card'.($is_leader?' mwat-leader-submit':'').'">';
+        if ( isset($_GET['mwat_status']) && 'success' === sanitize_key(wp_unslash($_GET['mwat_status'])) ) {
+            echo '<div class="mwat-submit-success"><span class="mwat-success-icon">✓</span><div><h3>Attendance sent</h3><p>Thank you. Your walk attendance has been recorded.</p></div></div>';
+        }
+        if ( ! $walks ) { echo '<div class="mwat-empty"><strong>No walk assigned</strong><br>Your account is set up, but a walk has not been assigned to you yet.</div></div>'; return; }
+        if ( $is_leader ) {
+            $user=wp_get_current_user();
+            echo '<div class="mwat-leader-welcome"><span class="mwat-eyebrow">Walk Leader</span><h3>Hi, '.esc_html($user->display_name).'</h3><p>Send this week\'s attendance. It should only take a few seconds.</p></div>';
+        } else {
+            echo '<div class="mwat-intro"><h3>Record attendance</h3><p>Enter the figures for the walk and press submit.</p></div>';
+        }
+        echo '<form class="mwat-form mwat-quick-form" method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_submit_attendance">';
         wp_nonce_field('mwat_submit_attendance','mwat_nonce');
-        echo '<label>Walk location<select name="walk_id" required><option value="">Choose your walk</option>';
-        foreach($walks as $walk) echo '<option value="'.(int)$walk->ID.'">'.esc_html($walk->post_title).'</option>';
-        echo '</select></label><label>Date<input name="walk_date" type="date" value="'.esc_attr(wp_date('Y-m-d')).'" required></label>';
-        echo '<div class="mwat-numbers"><label>Attendees<input name="attendees" type="number" min="0" inputmode="numeric" required></label><label>New attendees<input name="new_attendees" type="number" min="0" inputmode="numeric" required></label><label>Dogs<input name="dogs" type="number" min="0" inputmode="numeric" required></label></div>';
-        echo '<button class="mwat-primary" type="submit">Submit Attendance</button></form></div>';
+        if ( 1 === count($walks) ) {
+            $walk=reset($walks);
+            echo '<input type="hidden" name="walk_id" value="'.(int)$walk->ID.'"><div class="mwat-assigned-walk"><span>Your walk</span><strong>'.esc_html($walk->post_title).'</strong></div>';
+        } else {
+            echo '<label>Walk location<select name="walk_id" required><option value="">Choose your walk</option>';
+            foreach($walks as $walk) echo '<option value="'.(int)$walk->ID.'">'.esc_html($walk->post_title).'</option>';
+            echo '</select></label>';
+        }
+        echo '<label class="mwat-date-field">Walk date<input name="walk_date" type="date" value="'.esc_attr(wp_date('Y-m-d')).'" required></label>';
+        echo '<div class="mwat-number-stack"><label><span><strong>Attendees</strong><small>Total people on the walk</small></span><input name="attendees" type="number" min="0" inputmode="numeric" placeholder="0" required></label><label><span><strong>New attendees</strong><small>People joining for the first time</small></span><input name="new_attendees" type="number" min="0" inputmode="numeric" placeholder="0" required></label><label><span><strong>Dogs</strong><small>Dogs that joined the walk</small></span><input name="dogs" type="number" min="0" inputmode="numeric" placeholder="0" required></label></div>';
+        echo '<button class="mwat-primary mwat-submit-big" type="submit">Send Attendance</button><p class="mwat-submit-note">Please check the numbers before sending.</p></form></div>';
     }
 
     private function walks_screen() {
