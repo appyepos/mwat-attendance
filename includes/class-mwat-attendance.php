@@ -216,15 +216,28 @@ final class MWAT_Attendance {
     }
 
     private function history_screen() {
-        $entries=array_reverse($this->entries());
-        echo '<div class="mwat-card"><div class="mwat-card-head"><h3>Attendance history</h3><a class="mwat-secondary" href="'.esc_url(add_query_arg('mwat_export','csv')).'">CSV coming next</a></div><div class="mwat-table-wrap"><table class="mwat-table"><thead><tr><th>Date</th><th>Walk</th><th>Status</th><th>Attendees</th><th>New</th><th>Dogs</th><th>Reason</th><th>Submitted by</th></tr></thead><tbody>';
-        foreach($entries as $entry) {
-            $walk=!empty($entry['walk_id'])?get_the_title((int)$entry['walk_id']):($entry['location']??'—');
-            $user=!empty($entry['user_id'])?get_user_by('id',(int)$entry['user_id']):false;
-            $cancelled=($entry['type']??'attendance')==='cancelled';
-            echo '<tr><td>'.esc_html($entry['date']??'').'</td><td>'.esc_html($walk).'</td><td>'.($cancelled?'Cancelled':'Submitted').'</td><td>'.($cancelled?'—':(int)($entry['attendees']??0)).'</td><td>'.($cancelled?'—':(int)($entry['new_attendees']??0)).'</td><td>'.($cancelled?'—':(int)($entry['dogs']??0)).'</td><td>'.esc_html($cancelled?$this->cancellation_label($entry):'—').'</td><td>'.esc_html($user?$user->display_name:'Legacy entry').'</td></tr>';
+        $entries=$this->entries();
+        $edit=isset($_GET['mwat_edit'])?absint($_GET['mwat_edit']):-1;
+        if(isset($_GET['mwat_edit_status'])&&'saved'===sanitize_key(wp_unslash($_GET['mwat_edit_status']))) echo '<div class="mwat-success">✓ Weekly response updated.</div>';
+        if($edit>=0&&isset($entries[$edit])) {
+            $entry=$entries[$edit]; $cancelled=($entry['type']??'attendance')==='cancelled'; $walk=get_the_title((int)($entry['walk_id']??0));
+            echo '<div class="mwat-card mwat-edit-card"><div class="mwat-card-head"><div><h3>Edit weekly response</h3><p>'.esc_html($walk).'</p></div><a class="mwat-secondary" href="'.esc_url(remove_query_arg('mwat_edit')).'">Cancel edit</a></div><form class="mwat-form" method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_save_entry"><input type="hidden" name="entry_index" value="'.$edit.'">';
+            wp_nonce_field('mwat_save_entry','mwat_nonce');
+            echo '<label>Walk date<input type="date" name="walk_date" value="'.esc_attr($entry['date']??'').'" required></label><fieldset class="mwat-took-place"><legend>Did the walk take place?</legend><label><input type="radio" name="walk_status" value="attendance" '.checked(!$cancelled,true,false).'> <span><strong>Yes</strong><small>Attendance was recorded</small></span></label><label><input type="radio" name="walk_status" value="cancelled" '.checked($cancelled,true,false).'> <span><strong>No — walk cancelled</strong><small>Record the cancellation reason</small></span></label></fieldset>';
+            echo '<div id="mwat-edit-attendance" class="mwat-number-stack" '.($cancelled?'hidden':'').'><label><span><strong>Attendees</strong></span><input name="attendees" type="number" min="0" value="'.(int)($entry['attendees']??0).'"></label><label><span><strong>New attendees</strong></span><input name="new_attendees" type="number" min="0" value="'.(int)($entry['new_attendees']??0).'"></label><label><span><strong>Dogs</strong></span><input name="dogs" type="number" min="0" value="'.(int)($entry['dogs']??0).'"></label></div>';
+            $reason=$entry['cancel_reason']??'weather';
+            echo '<div id="mwat-edit-cancel" class="mwat-cancel-fields" '.(!$cancelled?'hidden':'').'><label>Reason<select name="cancel_reason">';
+            foreach(array('weather'=>'Weather / rain','illness'=>'Leader illness / unavailable','location'=>'Venue / location issue','low_attendance'=>'Low / no attendance','other'=>'Other') as $key=>$label) echo '<option value="'.$key.'" '.selected($reason,$key,false).'>'.$label.'</option>';
+            echo '</select></label><label id="mwat-edit-other" '.('other'!==$reason?'hidden':'').'>Other reason<input type="text" name="cancel_other" maxlength="200" value="'.esc_attr($entry['cancel_other']??'').'"></label></div><button class="mwat-primary" type="submit">Save Changes</button></form></div>';
+            echo '<script>(function(){var radios=document.querySelectorAll(".mwat-edit-card input[name=walk_status]"),a=document.getElementById("mwat-edit-attendance"),c=document.getElementById("mwat-edit-cancel"),sel=document.querySelector(".mwat-edit-card select[name=cancel_reason]"),o=document.getElementById("mwat-edit-other");function draw(){var v=document.querySelector(".mwat-edit-card input[name=walk_status]:checked").value;a.hidden=v==="cancelled";c.hidden=v!=="cancelled";reason();}function reason(){o.hidden=sel.value!=="other";}radios.forEach(function(r){r.addEventListener("change",draw)});sel.addEventListener("change",reason);})();</script>';
         }
-        if(!$entries) echo '<tr><td colspan="8">No weekly responses have been recorded yet.</td></tr>';
+        echo '<div class="mwat-card"><div class="mwat-card-head"><h3>Attendance history</h3><a class="mwat-secondary" href="'.esc_url(add_query_arg('mwat_export','csv')).'">CSV coming next</a></div><div class="mwat-table-wrap"><table class="mwat-table"><thead><tr><th>Date</th><th>Walk</th><th>Status</th><th>Attendees</th><th>New</th><th>Dogs</th><th>Reason</th><th>Submitted by</th><th></th></tr></thead><tbody>';
+        $display=array_reverse($entries,true);
+        foreach($display as $index=>$entry) {
+            $walk=!empty($entry['walk_id'])?get_the_title((int)$entry['walk_id']):($entry['location']??'—'); $user=!empty($entry['user_id'])?get_user_by('id',(int)$entry['user_id']):false; $cancelled=($entry['type']??'attendance')==='cancelled';
+            echo '<tr><td>'.esc_html($entry['date']??'').'</td><td>'.esc_html($walk).'</td><td>'.($cancelled?'Cancelled':'Submitted').'</td><td>'.($cancelled?'—':(int)($entry['attendees']??0)).'</td><td>'.($cancelled?'—':(int)($entry['new_attendees']??0)).'</td><td>'.($cancelled?'—':(int)($entry['dogs']??0)).'</td><td>'.esc_html($cancelled?$this->cancellation_label($entry):'—').'</td><td>'.esc_html($user?$user->display_name:'Legacy entry').(!empty($entry['edited_at'])?'<small class="mwat-edited">Edited</small>':'').'</td><td><a class="mwat-edit-link" href="'.esc_url(add_query_arg(array('mwat_tab'=>'history','mwat_edit'=>$index))).'">Edit</a></td></tr>';
+        }
+        if(!$entries) echo '<tr><td colspan="9">No weekly responses have been recorded yet.</td></tr>';
         echo '</tbody></table></div></div>';
     }
 
@@ -298,5 +311,32 @@ final class MWAT_Attendance {
         wp_safe_redirect(add_query_arg(array('mwat_tab'=>'walks','mwat_leader_status'=>'assigned'),wp_get_referer()?:home_url('/'))); exit;
     }
 
-    public function save_entry() {}
+    public function save_entry() {
+        if(!$this->is_manager()) wp_die('Not permitted.');
+        check_admin_referer('mwat_save_entry','mwat_nonce');
+        $index=isset($_POST['entry_index'])?absint($_POST['entry_index']):-1;
+        $entries=$this->entries();
+        if(!isset($entries[$index])) wp_die('This weekly response could not be found.');
+        $old=$entries[$index];
+        $date=isset($_POST['walk_date'])?sanitize_text_field(wp_unslash($_POST['walk_date'])):'';
+        $type=isset($_POST['walk_status'])?sanitize_key(wp_unslash($_POST['walk_status'])):'attendance';
+        if(!preg_match('/^\d{4}-\d{2}-\d{2}$/',$date)||!in_array($type,array('attendance','cancelled'),true)) wp_die('Please check the response details.');
+        $entry=$old; $entry['date']=$date; $entry['type']=$type; $entry['edited_by']=get_current_user_id(); $entry['edited_at']=current_time('mysql');
+        if('cancelled'===$type){
+            $reason=isset($_POST['cancel_reason'])?sanitize_key(wp_unslash($_POST['cancel_reason'])):'';
+            if(!in_array($reason,array('weather','illness','location','low_attendance','other'),true)) wp_die('Please choose a cancellation reason.');
+            $other=isset($_POST['cancel_other'])?sanitize_text_field(wp_unslash($_POST['cancel_other'])):'';
+            if('other'===$reason&&!$other) wp_die('Please enter the cancellation reason.');
+            $entry['cancel_reason']=$reason; $entry['cancel_other']=$other; $entry['attendees']=0; $entry['new_attendees']=0; $entry['dogs']=0;
+        } else {
+            $entry['attendees']=isset($_POST['attendees'])?absint($_POST['attendees']):0;
+            $entry['new_attendees']=isset($_POST['new_attendees'])?absint($_POST['new_attendees']):0;
+            $entry['dogs']=isset($_POST['dogs'])?absint($_POST['dogs']):0;
+            if($entry['new_attendees']>$entry['attendees']) wp_die('New attendees cannot be higher than total attendees.');
+            unset($entry['cancel_reason'],$entry['cancel_other']);
+        }
+        $entries[$index]=$entry;
+        update_option('mwat_attendance_entries',array_values($entries),false);
+        wp_safe_redirect(add_query_arg(array('mwat_tab'=>'history','mwat_edit_status'=>'saved'),remove_query_arg(array('mwat_edit'),wp_get_referer()?:home_url('/')))); exit;
+    }
 }
