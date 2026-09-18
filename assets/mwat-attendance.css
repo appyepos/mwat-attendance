@@ -20,3 +20,5 @@
 .mwat-leader-link{display:flex;gap:8px;align-items:center;margin-top:9px}.mwat-leader-link input{min-width:260px;max-width:460px;width:100%;padding:8px 10px;border:1px solid #d9e0dc;border-radius:8px;background:#f7f9f8;font-size:12px}.mwat-leader-link form{margin:0}.mwat-leader-link button{white-space:nowrap;padding:8px 10px}@media(max-width:760px){.mwat-leader-link{display:grid}.mwat-leader-link input{min-width:0;max-width:100%}.mwat-leader-link button{width:100%}}
 
 .mwat-row-actions{display:flex;align-items:center;gap:8px}.mwat-row-actions form{margin:0}.mwat-reminder-button{border:1px solid #153f2e;background:#fff;color:#153f2e;border-radius:8px;padding:7px 10px;font-size:12px;font-weight:700;cursor:pointer}.mwat-reminder-button:hover{background:#153f2e;color:#fff}@media(max-width:600px){.mwat-row-actions{align-items:flex-end;flex-direction:column}.mwat-reminder-button{white-space:nowrap}}
+
+.mwat-form-notice{margin:0 0 18px;padding:16px 18px;border-radius:10px}.mwat-form-notice strong{display:block;font-size:17px;margin-bottom:4px}.mwat-form-notice p{margin:0}.mwat-notice-warning{background:#fff7e6;border:1px solid #efd18a;color:#5c4615}
