@@ -200,7 +200,7 @@ final class MWAT_Attendance {
         }
         echo '<div class="mwat-stats mwat-leader-stats"><div><strong>'.count($walks).'</strong><span>GeoDirectory walks</span></div><div><strong>'.$assigned.'</strong><span>Leader assigned</span></div><div><strong>'.max(0,count($walks)-$assigned).'</strong><span>Need a leader</span></div></div>';
         $test_users=get_users(array('meta_key'=>'_mwat_test_leader','meta_value'=>'1'));
-        echo '<div class="mwat-card mwat-test-tools"><h3>Staging test leaders</h3><p class="mwat-help">Create test Walk Leader users from the GeoDirectory leader names and automatically assign them to their walks. These accounts are tagged so they can be safely removed later.</p><div class="mwat-test-summary"><strong>'.count($test_users).'</strong> test leader account'.(count($test_users)===1?'':'s').' currently exist.</div><div class="mwat-test-actions"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_import_test_leaders">';
+        echo '<div class="mwat-card mwat-test-tools"><h3>Staging test leaders</h3><p class="mwat-help">Create a fake Walk Leader for every GeoDirectory walk and automatically assign them. No real leader data is used. These accounts are tagged so they can be safely removed later.</p><div class="mwat-test-summary"><strong>'.count($test_users).'</strong> test leader account'.(count($test_users)===1?'':'s').' currently exist.</div><div class="mwat-test-actions"><form method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_import_test_leaders">';
         wp_nonce_field('mwat_import_test_leaders','mwat_nonce');
         echo '<button class="mwat-primary" type="submit">Import Test Leaders</button></form>';
         if($test_users){echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'" onsubmit="return confirm(\'Delete all imported MWAT test leaders and remove their walk assignments?\');"><input type="hidden" name="action" value="mwat_delete_test_leaders">';wp_nonce_field('mwat_delete_test_leaders','mwat_nonce');echo '<button class="mwat-secondary" type="submit">Delete Test Leaders</button></form>';}
@@ -397,15 +397,18 @@ final class MWAT_Attendance {
     public function import_test_leaders() {
         if(!$this->is_manager()||!$this->staging_only()) wp_die('This test import is only available to managers on staging.');
         check_admin_referer('mwat_import_test_leaders','mwat_nonce');
-        global $wpdb; $table=$wpdb->prefix.'geodir_gd_place_detail'; $walks=$this->walks(); $created=0;$assigned=0;$skipped=0;
-        foreach($walks as $walk){
-            $name=$wpdb->get_var($wpdb->prepare("SELECT leader_first_name FROM {$table} WHERE post_id=%d",$walk->ID));
-            $name=trim((string)$name); if(!$name){$skipped++;continue;}
-            $email=$this->test_leader_email($name,$walk->post_title,$walk->ID); $uid=email_exists($email);
+        $walks=$this->walks(); $created=0;$assigned=0;$skipped=0;
+        $fake_names=array('James','David','Tom','Chris','Dan','Matt','Paul','Steve','Rob','Andy','Ben','Sam','Mark','Adam','Luke','Jack','Simon','Lee','Alex','Joe');
+        foreach($walks as $i=>$walk){
+            $first=$fake_names[$i%count($fake_names)];
+            $place=trim(preg_replace('/\\s+(Walk|Group)(?:\\s+-.*)?$/i','',$walk->post_title));
+            if(!$place)$place='Walk '.$walk->ID;
+            $name=$first.' '.$place;
+            $email=$this->test_leader_email($first,$walk->post_title,$walk->ID); $uid=email_exists($email);
             if(!$uid){
-                $base=sanitize_user(strtolower($name.'_'.$walk->post_name),true);if(!$base)$base='mwatleader_'.$walk->ID;$login=$base;$n=2;while(username_exists($login)){$login=$base.$n;$n++;}
+                $base=sanitize_user(strtolower($first.'_'.$walk->post_name),true);if(!$base)$base='mwatleader_'.$walk->ID;$login=$base;$n=2;while(username_exists($login)){$login=$base.$n;$n++;}
                 $uid=wp_create_user($login,'mwat123!!',$email);if(is_wp_error($uid)){$skipped++;continue;}
-                wp_update_user(array('ID'=>$uid,'display_name'=>$name,'first_name'=>$name,'role'=>'walk_leader'));$created++;
+                wp_update_user(array('ID'=>$uid,'display_name'=>$name,'first_name'=>$first,'last_name'=>$place,'role'=>'walk_leader'));$created++;
             } else {
                 $user=new WP_User($uid);$user->set_role('walk_leader');$user->add_cap('mwat_submit_attendance');
             }
