@@ -14,6 +14,7 @@ final class MWAT_Attendance {
         add_action( 'admin_post_mwat_assign_leader', array( $this, 'assign_leader' ) );
         add_action( 'admin_post_mwat_create_leader', array( $this, 'create_leader' ) );
         add_action( 'admin_post_mwat_regenerate_leader_link', array( $this, 'regenerate_leader_link' ) );
+        add_action( 'admin_post_mwat_send_test_reminder', array( $this, 'send_test_reminder' ) );
         add_action( 'admin_post_mwat_save_entry', array( $this, 'save_entry' ) );
         add_action( 'admin_post_mwat_import_test_leaders', array( $this, 'import_test_leaders' ) );
         add_action( 'admin_post_mwat_delete_test_leaders', array( $this, 'delete_test_leaders' ) );
@@ -167,7 +168,8 @@ final class MWAT_Attendance {
             else { $submitted++; $total+=(int)($entry['attendees']??0); }
         }
         $waiting=max(0,count($walks)-count($states));
-        echo '<div class="mwat-intro"><h3>This week</h3><p>Every walk should send one response each week, including cancelled walks.</p></div>';
+        if(isset($_GET['mwat_reminder_status'])){$rs=sanitize_key(wp_unslash($_GET['mwat_reminder_status']));if('sent'===$rs)echo '<div class="mwat-success">✓ Test reminder sent to ben_owen@msn.com.</div>';elseif('failed'===$rs)echo '<div class="mwat-empty">The test reminder email could not be sent.</div>';}
+        echo '<div class="mwat-intro"><h3>This week</h3><p>Every walk should send one response each week, including cancelled walks.</p></div>'; 
         echo '<div class="mwat-stats"><div><strong>'.count($walks).'</strong><span>Total walks</span></div><div><strong>'.$submitted.'</strong><span>Submitted</span></div><div><strong>'.$cancelled.'</strong><span>Cancelled</span></div><div><strong>'.$waiting.'</strong><span>Not submitted</span></div><div><strong>'.$total.'</strong><span>Attendees</span></div></div>';
         echo '<div class="mwat-card"><div class="mwat-card-head mwat-dashboard-head"><div><h3>Walk status</h3><p>Not submitted walks are shown first.</p></div><input id="mwat-walk-search" class="mwat-search" type="search" placeholder="Search walks..." aria-label="Search walks"></div>';
         echo '<div class="mwat-filters"><button type="button" class="mwat-filter active" data-filter="waiting">Not Submitted <span>'.$waiting.'</span></button><button type="button" class="mwat-filter" data-filter="done">Submitted <span>'.$submitted.'</span></button><button type="button" class="mwat-filter" data-filter="cancelled">Cancelled <span>'.$cancelled.'</span></button><button type="button" class="mwat-filter" data-filter="all">All <span>'.count($walks).'</span></button></div><div id="mwat-walk-list" class="mwat-list mwat-status-grid">';
@@ -179,7 +181,7 @@ final class MWAT_Attendance {
             }
             $leader=get_user_by('id',(int)get_post_meta($walk->ID,'_mwat_leader_user',true));
             $sub=($leader?$leader->display_name:'No leader assigned').($detail?' · '.$detail:'');
-            echo '<div class="mwat-row mwat-walk-row" data-status="'.$status.'" data-search="'.esc_attr(strtolower($walk->post_title.' '.$sub)).'"><div><strong>'.esc_html($walk->post_title).'</strong><small>'.esc_html($sub).'</small></div><span class="mwat-status '.$status.'">'.$label.'</span></div>';
+            echo '<div class="mwat-row mwat-walk-row" data-status="'.$status.'" data-search="'.esc_attr(strtolower($walk->post_title.' '.$sub)).'"><div><strong>'.esc_html($walk->post_title).'</strong><small>'.esc_html($sub).'</small></div><div class="mwat-row-actions"><span class="mwat-status '.$status.'">'.$label.'</span>';if('waiting'===$status&&$leader){echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_send_test_reminder"><input type="hidden" name="walk_id" value="'.(int)$walk->ID.'">';wp_nonce_field('mwat_send_test_reminder','mwat_nonce');echo '<button class="mwat-reminder-button" type="submit">Send Reminder</button></form>';}echo '</div></div>';
         }
         echo '</div><div id="mwat-no-results" class="mwat-empty" hidden>No walks match your search.</div></div>';
         echo '<script>(function(){var box=document.getElementById("mwat-walk-search"),rows=[].slice.call(document.querySelectorAll(".mwat-walk-row")),buttons=[].slice.call(document.querySelectorAll(".mwat-filter")),empty=document.getElementById("mwat-no-results"),filter="waiting";function draw(){var q=(box.value||"").toLowerCase().trim(),shown=0;rows.forEach(function(r){var yes=(filter==="all"||r.dataset.status===filter)&&(!q||r.dataset.search.indexOf(q)>-1);r.style.display=yes?"":"none";if(yes)shown++;});empty.hidden=shown>0;}buttons.forEach(function(b){b.addEventListener("click",function(){buttons.forEach(function(x){x.classList.remove("active")});b.classList.add("active");filter=b.dataset.filter;draw();});});box.addEventListener("input",draw);draw();})();</script>';
@@ -386,6 +388,20 @@ final class MWAT_Attendance {
         if('cancelled'===$type){$reason=isset($_POST['cancel_reason'])?sanitize_key(wp_unslash($_POST['cancel_reason'])):'';$valid=array('weather','illness','location','low_attendance','other');if(!in_array($reason,$valid,true))wp_die('Please choose a cancellation reason.');$other=isset($_POST['cancel_other'])?sanitize_text_field(wp_unslash($_POST['cancel_other'])):'';if('other'===$reason&&!$other)wp_die('Please enter the cancellation reason.');$entry['cancel_reason']=$reason;$entry['cancel_other']=$other;$entry['attendees']=0;$entry['new_attendees']=0;$entry['dogs']=0;}else{$att=isset($_POST['attendees'])?absint($_POST['attendees']):0;$new=isset($_POST['new_attendees'])?absint($_POST['new_attendees']):0;$dogs=isset($_POST['dogs'])?absint($_POST['dogs']):0;if($new>$att)wp_die('New attendees cannot be higher than total attendees.');$entry['attendees']=$att;$entry['new_attendees']=$new;$entry['dogs']=$dogs;}
         $entries[]=$entry;update_option('mwat_attendance_entries',array_values($entries),false);
         $return=$public_leader?add_query_arg(array('mwat_key'=>$token,'mwat_status'=>'success'),get_permalink()):add_query_arg(array('mwat_tab'=>'submit','mwat_status'=>'success'),wp_get_referer()?:home_url('/'));wp_safe_redirect($return);exit;
+    }
+
+    public function send_test_reminder() {
+        if(!$this->is_manager()||!$this->staging_only())wp_die('Test reminders are only available to managers on staging.');
+        check_admin_referer('mwat_send_test_reminder','mwat_nonce');
+        $walk_id=isset($_POST['walk_id'])?absint($_POST['walk_id']):0;$walk=get_post($walk_id);if(!$walk||'gd_place'!==$walk->post_type)wp_die('Walk not found.');
+        $leader=get_user_by('id',(int)get_post_meta($walk_id,'_mwat_leader_user',true));if(!$leader)wp_die('No leader is assigned to this walk.');
+        list($start,$end)=$this->week_bounds();if(false!==$this->weekly_entry_index($walk_id,wp_date('Y-m-d'),$this->entries()))wp_die('This walk has already submitted for the current week.');
+        $link=$this->leader_link($leader->ID);
+        $subject='Reminder: '.$walk->post_title.' weekly attendance';
+        $message="Hi {$leader->display_name},\n\nJust a reminder that we have not yet received this week's attendance for {$walk->post_title}.\n\nPlease submit your weekly update using your usual personal link:\n\n{$link}\n\nThis is the same link you can use each week. If the walk was cancelled, please still submit the form and choose the cancellation reason.\n\nThank you,\nMen Walking & Talking";
+        // STAGING SAFETY: all manual reminder tests are redirected to Ben, never to the fake/leader email.
+        $sent=wp_mail('ben_owen@msn.com',$subject,$message);
+        wp_safe_redirect(add_query_arg(array('mwat_tab'=>'dashboard','mwat_reminder_status'=>$sent?'sent':'failed'),wp_get_referer()?:home_url('/')));exit;
     }
 
     public function create_leader() {
