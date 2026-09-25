@@ -309,9 +309,17 @@ final class MWAT_Attendance {
     }
 
     private function history_filters() {
+        $period=isset($_GET['mwat_period'])?sanitize_key(wp_unslash($_GET['mwat_period'])):'lastweek';
+        $today=wp_date('Y-m-d'); list($this_week_start,$this_week_end)=$this->week_bounds($today);
+        $last_week_start=wp_date('Y-m-d',strtotime($this_week_start.' -7 days'));
+        $last_week_end=wp_date('Y-m-d',strtotime($this_week_start.' -1 day'));
+        if('lastmonth'===$period){$from=wp_date('Y-m-01',strtotime('first day of last month'));$to=wp_date('Y-m-t',strtotime('last day of last month'));}
+        elseif('custom'===$period){$from=isset($_GET['mwat_from'])?sanitize_text_field(wp_unslash($_GET['mwat_from'])):$last_week_start;$to=isset($_GET['mwat_to'])?sanitize_text_field(wp_unslash($_GET['mwat_to'])):$last_week_end;}
+        else {$period='lastweek';$from=$last_week_start;$to=$last_week_end;}
         return array(
-            'from'=>isset($_GET['mwat_from'])?sanitize_text_field(wp_unslash($_GET['mwat_from'])):'',
-            'to'=>isset($_GET['mwat_to'])?sanitize_text_field(wp_unslash($_GET['mwat_to'])):'',
+            'period'=>$period,
+            'from'=>$from,
+            'to'=>$to,
             'walk'=>isset($_GET['mwat_walk'])?absint($_GET['mwat_walk']):0,
             'status'=>isset($_GET['mwat_status_filter'])?sanitize_key(wp_unslash($_GET['mwat_status_filter'])):'all',
         );
@@ -331,12 +339,13 @@ final class MWAT_Attendance {
 
     private function analytics_screen() {
         $entries=$this->entries(); $walks=$this->walks();
-        $preset=isset($_GET['mwat_period'])?sanitize_key(wp_unslash($_GET['mwat_period'])):'4weeks';
+        $preset=isset($_GET['mwat_period'])?sanitize_key(wp_unslash($_GET['mwat_period'])):'week';
         $today=wp_date('Y-m-d'); list($this_week_start,$this_week_end)=$this->week_bounds($today);
         if('week'===$preset){$from=$this_week_start;$to=$today;}
-        elseif('month'===$preset){$from=wp_date('Y-m-01');$to=$today;}
+        elseif('lastweek'===$preset){$from=wp_date('Y-m-d',strtotime($this_week_start.' -7 days'));$to=wp_date('Y-m-d',strtotime($this_week_start.' -1 day'));}
+        elseif('lastmonth'===$preset){$from=wp_date('Y-m-01',strtotime('first day of last month'));$to=wp_date('Y-m-t',strtotime('last day of last month'));}
         elseif('custom'===$preset){$from=isset($_GET['mwat_from'])?sanitize_text_field(wp_unslash($_GET['mwat_from'])):$this_week_start;$to=isset($_GET['mwat_to'])?sanitize_text_field(wp_unslash($_GET['mwat_to'])):$today;}
-        else {$preset='4weeks';$from=wp_date('Y-m-d',strtotime($this_week_start.' -21 days'));$to=$today;}
+        else {$preset='week';$from=$this_week_start;$to=$today;}
         $filtered=array_values(array_filter($entries,function($e)use($from,$to){$d=$e['date']??'';return $d>=$from&&$d<=$to;}));
         $att=0;$new=0;$dogs=0;$cancel=0;$submitted=0;$by_walk=array();$reasons=array();$weekly=array();
         foreach($filtered as $e){$type=$e['type']??'attendance';$wid=(int)($e['walk_id']??0);$week=wp_date('Y-m-d',strtotime(($e['date']??$today).' monday this week'));if(!isset($weekly[$week]))$weekly[$week]=array('att'=>0,'new'=>0,'responses'=>0);
@@ -344,7 +353,7 @@ final class MWAT_Attendance {
         arsort($by_walk); arsort($reasons); ksort($weekly); $responses=count($filtered); $avg=$submitted?round($att/$submitted,1):0;
         echo '<div class="mwat-intro"><h3>Analytics</h3><p>See attendance trends and how walks are performing over time.</p></div>';
         $base=remove_query_arg(array('mwat_period','mwat_from','mwat_to'));echo '<div class="mwat-periods">';
-        foreach(array('week'=>'This Week','4weeks'=>'Last 4 Weeks','month'=>'This Month','custom'=>'Custom') as $k=>$label)echo '<a class="'.($preset===$k?'active':'').'" href="'.esc_url(add_query_arg('mwat_period',$k,$base)).'">'.esc_html($label).'</a>';echo '</div>';
+        foreach(array('week'=>'This Week','lastweek'=>'Last Week','lastmonth'=>'Last Month','custom'=>'Custom') as $k=>$label)echo '<a class="'.($preset===$k?'active':'').'" href="'.esc_url(add_query_arg('mwat_period',$k,$base)).'">'.esc_html($label).'</a>';echo '</div>';
         if('custom'===$preset)echo '<form class="mwat-analytics-range" method="get"><input type="hidden" name="mwat_tab" value="analytics"><input type="hidden" name="mwat_period" value="custom"><label>From<input type="date" name="mwat_from" value="'.esc_attr($from).'"></label><label>To<input type="date" name="mwat_to" value="'.esc_attr($to).'"></label><button class="mwat-primary">Apply</button></form>';
         echo '<p class="mwat-date-range">'.esc_html(date_i18n('j M Y',strtotime($from))).' – '.esc_html(date_i18n('j M Y',strtotime($to))).'</p>';
         echo '<div class="mwat-stats mwat-analytics-stats"><div><strong>'.$att.'</strong><span>Total attendees</span></div><div><strong>'.$new.'</strong><span>New attendees</span></div><div><strong>'.$avg.'</strong><span>Average per walk</span></div><div><strong>'.$dogs.'</strong><span>Dogs</span></div><div><strong>'.$cancel.'</strong><span>Cancelled</span></div></div>';
@@ -375,10 +384,13 @@ final class MWAT_Attendance {
             echo '</select></label><label id="mwat-edit-other" '.('other'!==$reason?'hidden':'').'>Other reason<input type="text" name="cancel_other" maxlength="200" value="'.esc_attr($entry['cancel_other']??'').'"></label></div><button class="mwat-primary" type="submit">Save Changes</button></form></div><script>(function(){var rs=document.querySelectorAll(".mwat-edit-card input[name=walk_status]"),a=document.getElementById("mwat-edit-attendance"),c=document.getElementById("mwat-edit-cancel"),s=document.querySelector(".mwat-edit-card select[name=cancel_reason]"),o=document.getElementById("mwat-edit-other");function d(){var v=document.querySelector(".mwat-edit-card input[name=walk_status]:checked").value;a.hidden=v==="cancelled";c.hidden=v!=="cancelled";r()}function r(){o.hidden=s.value!=="other"}rs.forEach(function(x){x.addEventListener("change",d)});s.addEventListener("change",r)})();</script>';
         }
         $attendees=0;$new=0;$dogs=0;$cancelled_count=0; foreach($filtered as $entry){if(($entry['type']??'attendance')==='cancelled')$cancelled_count++;else{$attendees+=(int)($entry['attendees']??0);$new+=(int)($entry['new_attendees']??0);$dogs+=(int)($entry['dogs']??0);}}
-        echo '<div class="mwat-intro"><h3>History & reports</h3><p>Filter the records, review totals and download the same results as a CSV.</p></div>';
-        echo '<form class="mwat-card mwat-history-filters" method="get"><input type="hidden" name="mwat_tab" value="history"><label>From<input type="date" name="mwat_from" value="'.esc_attr($filters['from']).'"></label><label>To<input type="date" name="mwat_to" value="'.esc_attr($filters['to']).'"></label><label>Walk<select name="mwat_walk"><option value="0">All walks</option>';
+        echo '<div class="mwat-intro"><h3>History & reports</h3><p>Review previous attendance, make corrections and export records.</p></div>';
+        $hbase=remove_query_arg(array('mwat_period','mwat_from','mwat_to','mwat_walk','mwat_status_filter','mwat_edit'));echo '<div class="mwat-periods">';
+        foreach(array('lastweek'=>'Last Week','lastmonth'=>'Last Month','custom'=>'Custom') as $k=>$label)echo '<a class="'.($filters['period']===$k?'active':'').'" href="'.esc_url(add_query_arg(array('mwat_tab'=>'history','mwat_period'=>$k),$hbase)).'">'.esc_html($label).'</a>';echo '</div>';
+        echo '<p class="mwat-date-range">'.esc_html(date_i18n('j M Y',strtotime($filters['from']))).' – '.esc_html(date_i18n('j M Y',strtotime($filters['to']))).'</p>';
+        echo '<form class="mwat-card mwat-history-filters'.('custom'===$filters['period']?'':' mwat-history-compact').'" method="get"><input type="hidden" name="mwat_tab" value="history"><input type="hidden" name="mwat_period" value="'.esc_attr($filters['period']).'">'.('custom'===$filters['period']?'<label>From<input type="date" name="mwat_from" value="'.esc_attr($filters['from']).'"></label><label>To<input type="date" name="mwat_to" value="'.esc_attr($filters['to']).'"></label>':'');<label>Walk<select name="mwat_walk"><option value="0">All walks</option>';
         foreach($this->walks() as $walk) echo '<option value="'.$walk->ID.'" '.selected($filters['walk'],$walk->ID,false).'>'.esc_html($walk->post_title).'</option>';
-        echo '</select></label><label>Status<select name="mwat_status_filter"><option value="all">All</option><option value="submitted" '.selected($filters['status'],'submitted',false).'>Submitted</option><option value="cancelled" '.selected($filters['status'],'cancelled',false).'>Cancelled</option></select></label><div class="mwat-filter-actions"><button class="mwat-primary" type="submit">Apply Filters</button><a class="mwat-secondary" href="'.esc_url(add_query_arg('mwat_tab','history',remove_query_arg(array('mwat_from','mwat_to','mwat_walk','mwat_status_filter','mwat_edit')))).'">Clear</a></div></form>';
+        echo '</select></label><label>Status<select name="mwat_status_filter"><option value="all">All</option><option value="submitted" '.selected($filters['status'],'submitted',false).'>Submitted</option><option value="cancelled" '.selected($filters['status'],'cancelled',false).'>Cancelled</option></select></label><div class="mwat-filter-actions"><button class="mwat-primary" type="submit">Apply Filters</button><a class="mwat-secondary" href="'.esc_url(add_query_arg(array('mwat_tab'=>'history','mwat_period'=>'lastweek'),remove_query_arg(array('mwat_from','mwat_to','mwat_walk','mwat_status_filter','mwat_edit')))).'">Clear</a></div></form>';
         echo '<div class="mwat-stats mwat-report-stats"><div><strong>'.count($filtered).'</strong><span>Responses</span></div><div><strong>'.$attendees.'</strong><span>Attendees</span></div><div><strong>'.$new.'</strong><span>New attendees</span></div><div><strong>'.$dogs.'</strong><span>Dogs</span></div><div><strong>'.$cancelled_count.'</strong><span>Cancelled</span></div></div>';
         $export=wp_nonce_url(add_query_arg(array('action'=>'mwat_export_csv','mwat_from'=>$filters['from'],'mwat_to'=>$filters['to'],'mwat_walk'=>$filters['walk'],'mwat_status_filter'=>$filters['status']),admin_url('admin-post.php')),'mwat_export_csv');
         echo '<div class="mwat-card"><div class="mwat-card-head"><div><h3>Attendance history</h3><p>'.count($filtered).' matching response'.(count($filtered)===1?'':'s').'</p></div><a class="mwat-secondary" href="'.esc_url($export).'">Download CSV</a></div><div class="mwat-table-wrap"><table class="mwat-table"><thead><tr><th>Date</th><th>Walk</th><th>Status</th><th>Attendees</th><th>New</th><th>Dogs</th><th>Reason</th><th>Submitted by</th><th></th></tr></thead><tbody>';
