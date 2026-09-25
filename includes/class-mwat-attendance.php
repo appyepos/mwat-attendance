@@ -185,7 +185,7 @@ final class MWAT_Attendance {
             else { $submitted++; $total+=(int)($entry['attendees']??0); }
         }
         $waiting=max(0,count($walks)-count($states));
-        if(isset($_GET['mwat_reminder_status'])){$rs=sanitize_key(wp_unslash($_GET['mwat_reminder_status']));if('sent'===$rs)echo '<div class="mwat-success">✓ Test reminder sent to ben_owen@msn.com.</div>';elseif('failed'===$rs)echo '<div class="mwat-empty">The test reminder email could not be sent.</div>';}
+        if(isset($_GET['mwat_reminder_status'])){$rs=sanitize_key(wp_unslash($_GET['mwat_reminder_status']));if('sent'===$rs)echo '<div class="mwat-success">✓ Test reminder sent to ben_owen@msn.com and hello@mwat.co.uk.</div>';elseif('failed'===$rs)echo '<div class="mwat-empty">The test reminder email could not be sent.</div>';}
         echo '<div class="mwat-intro"><h3>This week</h3><p>Every walk should send one response each week, including cancelled walks.</p></div>'; 
         echo '<div class="mwat-stats"><div><strong>'.count($walks).'</strong><span>Total walks</span></div><div><strong>'.$submitted.'</strong><span>Submitted</span></div><div><strong>'.$cancelled.'</strong><span>Cancelled</span></div><div><strong>'.$waiting.'</strong><span>Not submitted</span></div><div><strong>'.$total.'</strong><span>Attendees</span></div></div>';
         echo '<div class="mwat-card"><div class="mwat-card-head mwat-dashboard-head"><div><h3>Walk status</h3><p>All walks for the current week.</p></div><input id="mwat-walk-search" class="mwat-search" type="search" placeholder="Search walks..." aria-label="Search walks"></div>';
@@ -443,7 +443,7 @@ final class MWAT_Attendance {
         $message='<p>Hi '.esc_html($leader->display_name).',</p><p>Just a reminder that we have not yet received this week\'s attendance for <strong>'.esc_html($walk->post_title).'</strong>.</p><p><a href="'.esc_url($link).'" style="display:inline-block;background:#116b45;color:#ffffff;text-decoration:none;font-weight:700;padding:12px 20px;border-radius:8px;">Submit Weekly Attendance</a></p><p>If the button does not work, copy and paste this link into your browser:<br><span style="font-size:12px;color:#68756e;word-break:break-all;">'.esc_html($link).'</span></p><p>This is the same personal link you can use each week. If the walk was cancelled, please still submit the form and choose the cancellation reason.</p><p>Thank you,<br>Men Walking &amp; Talking</p>';
         $headers=array('Content-Type: text/html; charset=UTF-8');
         // STAGING SAFETY: all manual reminder tests are redirected to Ben, never to the fake/leader email.
-        $sent=wp_mail('ben_owen@msn.com',$subject,$message,$headers);
+        $sent=wp_mail(array('ben_owen@msn.com','hello@mwat.co.uk'),$subject,$message,$headers);
         wp_safe_redirect(add_query_arg(array('mwat_tab'=>'dashboard','mwat_reminder_status'=>$sent?'sent':'failed'),wp_get_referer()?:home_url('/')));exit;
     }
 
