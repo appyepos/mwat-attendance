@@ -141,6 +141,7 @@ final class MWAT_Attendance {
             if ( 'walks' === $tab ) $this->walks_screen();
             elseif ( 'history' === $tab ) $this->history_screen();
             elseif ( 'analytics' === $tab ) $this->analytics_screen();
+            elseif ( 'how' === $tab ) $this->how_it_works_screen();
             elseif ( 'admin' === $tab ) $this->admin_screen();
             elseif ( 'submit' === $tab ) $this->leader_screen();
             else $this->dashboard();
@@ -157,11 +158,18 @@ final class MWAT_Attendance {
         if ( $this->is_manager() ) {
             $base = remove_query_arg( 'mwat_tab' );
             echo '<nav class="mwat-nav">';
-            foreach ( array( 'dashboard' => 'Dashboard', 'submit' => 'Add Attendance', 'walks' => 'Walk Leaders', 'history' => 'History', 'analytics' => 'Analytics', 'admin' => 'Admin' ) as $key => $label ) {
+            foreach ( array( 'dashboard' => 'Dashboard', 'submit' => 'Add Attendance', 'walks' => 'Walk Leaders', 'history' => 'History', 'analytics' => 'Analytics', 'how' => 'How It Works', 'admin' => 'Admin' ) as $key => $label ) {
                 echo '<a class="' . ( $tab === $key ? 'active' : '' ) . '" href="' . esc_url( add_query_arg( 'mwat_tab', $key, $base ) ) . '">' . esc_html( $label ) . '</a>';
             }
             echo '</nav>';
         }
+    }
+
+    private function how_it_works_screen() {
+        echo '<div class="mwat-intro"><h3>How It Works</h3><p>A simple weekly attendance process designed to reduce manual checking and chasing.</p></div>';
+        echo '<div class="mwat-card mwat-how-card"><h3>Weekly attendance</h3><ul><li>Each Walk Leader has their own secure personal attendance link — no weekly login is needed.</li><li>After the walk, the leader submits the walk date, total attendees, new attendees and dogs.</li><li>If a walk is cancelled, the leader records the cancellation and reason instead.</li><li>The dashboard immediately shows which walks have submitted, which were cancelled and which are still outstanding.</li><li>Outstanding leaders can be sent a reminder containing their personal attendance link.</li></ul></div>';
+        echo '<div class="mwat-card mwat-how-card"><h3>Automatic walk management</h3><ul><li>Walk groups are taken directly from the walks already managed on the MWAT website.</li><li>When a new walk is added to the website, it automatically becomes available in the attendance system — there is no separate group list to maintain.</li><li>A Walk Leader is assigned to the group once, and their personal link can then be used every week.</li></ul></div>';
+        echo '<div class="mwat-card mwat-how-card"><h3>Reporting &amp; oversight</h3><ul><li>History keeps previous weekly submissions together in one place and allows corrections where required.</li><li>Reports can be filtered by date, walk and status and downloaded as a CSV.</li><li>Analytics show attendance, new attendees, cancellations and group growth over time.</li></ul></div>';
     }
 
     private function dashboard() {
@@ -180,20 +188,20 @@ final class MWAT_Attendance {
         if(isset($_GET['mwat_reminder_status'])){$rs=sanitize_key(wp_unslash($_GET['mwat_reminder_status']));if('sent'===$rs)echo '<div class="mwat-success">✓ Test reminder sent to ben_owen@msn.com.</div>';elseif('failed'===$rs)echo '<div class="mwat-empty">The test reminder email could not be sent.</div>';}
         echo '<div class="mwat-intro"><h3>This week</h3><p>Every walk should send one response each week, including cancelled walks.</p></div>'; 
         echo '<div class="mwat-stats"><div><strong>'.count($walks).'</strong><span>Total walks</span></div><div><strong>'.$submitted.'</strong><span>Submitted</span></div><div><strong>'.$cancelled.'</strong><span>Cancelled</span></div><div><strong>'.$waiting.'</strong><span>Not submitted</span></div><div><strong>'.$total.'</strong><span>Attendees</span></div></div>';
-        echo '<div class="mwat-card"><div class="mwat-card-head mwat-dashboard-head"><div><h3>Walk status</h3><p>Not submitted walks are shown first.</p></div><input id="mwat-walk-search" class="mwat-search" type="search" placeholder="Search walks..." aria-label="Search walks"></div>';
-        echo '<div class="mwat-filters"><button type="button" class="mwat-filter active" data-filter="waiting">Not Submitted <span>'.$waiting.'</span></button><button type="button" class="mwat-filter" data-filter="done">Submitted <span>'.$submitted.'</span></button><button type="button" class="mwat-filter" data-filter="cancelled">Cancelled <span>'.$cancelled.'</span></button><button type="button" class="mwat-filter" data-filter="all">All <span>'.count($walks).'</span></button></div><div id="mwat-walk-list" class="mwat-list mwat-status-grid">';
+        echo '<div class="mwat-card"><div class="mwat-card-head mwat-dashboard-head"><div><h3>Walk status</h3><p>All walks for the current week.</p></div><input id="mwat-walk-search" class="mwat-search" type="search" placeholder="Search walks..." aria-label="Search walks"></div>';
+        echo '<div class="mwat-filters"><button type="button" class="mwat-filter active" data-filter="all">All <span>'.count($walks).'</span></button><button type="button" class="mwat-filter" data-filter="waiting">Not Submitted <span>'.$waiting.'</span></button><button type="button" class="mwat-filter" data-filter="done">Submitted <span>'.$submitted.'</span></button><button type="button" class="mwat-filter" data-filter="cancelled">Cancelled <span>'.$cancelled.'</span></button></div><div id="mwat-walk-list" class="mwat-list mwat-status-grid">';
         foreach($walks as $walk) {
             $entry=$states[$walk->ID]??null; $status='waiting'; $label='Not submitted'; $detail='';
             if($entry) {
                 if(($entry['type']??'attendance')==='cancelled') { $status='cancelled'; $label='Cancelled'; $detail=$this->cancellation_label($entry); }
-                else { $status='done'; $label='Submitted'; $detail=(int)($entry['attendees']??0).' attendees'; }
+                else { $status='done'; $label='Submitted'; $detail=(int)($entry['attendees']??0).' attendees · '.(int)($entry['new_attendees']??0).' new'; }
             }
             $leader=get_user_by('id',(int)get_post_meta($walk->ID,'_mwat_leader_user',true));
             $sub=($leader?$leader->display_name:'No leader assigned').($detail?' · '.$detail:'');
             echo '<div class="mwat-row mwat-walk-row" data-status="'.$status.'" data-search="'.esc_attr(strtolower($walk->post_title.' '.$sub)).'"><div><strong>'.esc_html($walk->post_title).'</strong><small>'.esc_html($sub).'</small></div><div class="mwat-row-actions"><span class="mwat-status '.$status.'">'.$label.'</span>';if('waiting'===$status&&$leader){echo '<form method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_send_test_reminder"><input type="hidden" name="walk_id" value="'.(int)$walk->ID.'">';wp_nonce_field('mwat_send_test_reminder','mwat_nonce');echo '<button class="mwat-reminder-button" type="submit">Send Reminder</button></form>';}echo '</div></div>';
         }
         echo '</div><div id="mwat-no-results" class="mwat-empty" hidden>No walks match your search.</div></div>';
-        echo '<script>(function(){var box=document.getElementById("mwat-walk-search"),rows=[].slice.call(document.querySelectorAll(".mwat-walk-row")),buttons=[].slice.call(document.querySelectorAll(".mwat-filter")),empty=document.getElementById("mwat-no-results"),filter="waiting";function draw(){var q=(box.value||"").toLowerCase().trim(),shown=0;rows.forEach(function(r){var yes=(filter==="all"||r.dataset.status===filter)&&(!q||r.dataset.search.indexOf(q)>-1);r.style.display=yes?"":"none";if(yes)shown++;});empty.hidden=shown>0;}buttons.forEach(function(b){b.addEventListener("click",function(){buttons.forEach(function(x){x.classList.remove("active")});b.classList.add("active");filter=b.dataset.filter;draw();});});box.addEventListener("input",draw);draw();})();</script>';
+        echo '<script>(function(){var box=document.getElementById("mwat-walk-search"),rows=[].slice.call(document.querySelectorAll(".mwat-walk-row")),buttons=[].slice.call(document.querySelectorAll(".mwat-filter")),empty=document.getElementById("mwat-no-results"),filter="all";function draw(){var q=(box.value||"").toLowerCase().trim(),shown=0;rows.forEach(function(r){var yes=(filter==="all"||r.dataset.status===filter)&&(!q||r.dataset.search.indexOf(q)>-1);r.style.display=yes?"":"none";if(yes)shown++;});empty.hidden=shown>0;}buttons.forEach(function(b){b.addEventListener("click",function(){buttons.forEach(function(x){x.classList.remove("active")});b.classList.add("active");filter=b.dataset.filter;draw();});});box.addEventListener("input",draw);draw();})();</script>';
     }
 
     private function cancellation_label( $entry ) {
