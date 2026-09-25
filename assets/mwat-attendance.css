@@ -37,3 +37,5 @@
 @media(max-width:700px){.mwat-stats>div{min-height:82px;padding:12px 14px!important}.mwat-stats strong{font-size:24px!important}}
 
 .mwat-cancel-fields textarea{width:100%;min-height:110px;margin-top:7px;padding:12px 14px;border:1px solid #ccd6d0;border-radius:10px;background:#fff;font:inherit;resize:vertical}
+
+.mwat-how-card{margin-bottom:16px}.mwat-how-card ul{margin:12px 0 0;padding-left:20px}.mwat-how-card li{margin:0 0 10px;line-height:1.5;color:#44524b}.mwat-analytics-grid>.mwat-card:last-child .mwat-ranking>div{grid-template-columns:minmax(0,1fr) auto;width:100%}.mwat-analytics-grid>.mwat-card:last-child .mwat-ranking strong{min-width:0}
