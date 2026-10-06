@@ -47,6 +47,9 @@ final class MWAT_Attendance {
     }
 
     private function is_manager() {
+        // Staging demo: allow any logged-in account to view the manager portal so Mark
+        // can test it regardless of his current WordPress role. Keep production restricted.
+        if ( $this->staging_only() ) return is_user_logged_in();
         return is_user_logged_in() && current_user_can( 'manage_options' );
     }
 
