@@ -178,6 +178,8 @@ final class MWAT_Attendance {
         if(!preg_match('/^\\d{4}-\\d{2}-\\d{2}$/',$selected_week))$selected_week=$current_week_start;
         list($week_start,$week_end)=$this->week_bounds($selected_week);
         if($week_start>$current_week_start){$week_start=$current_week_start;$week_end=$current_week_end;}
+        // Historical dashboard only includes walks that had been published by the end of the selected week.
+        $walks=array_values(array_filter($walks,function($walk)use($week_end){$published=get_post_time('Y-m-d',false,$walk);return !$published||$published<=$week_end;}));
         $prev_week=wp_date('Y-m-d',strtotime($week_start.' -7 days')); $next_week=wp_date('Y-m-d',strtotime($week_start.' +7 days'));
         $states=array(); $total=0; $submitted=0; $cancelled=0;
         foreach($entries as $entry) {
