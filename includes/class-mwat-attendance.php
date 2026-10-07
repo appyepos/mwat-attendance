@@ -300,7 +300,19 @@ final class MWAT_Attendance {
         if(!$walk){echo '<div class="mwat-form-card"><div class="mwat-empty"><strong>No walk assigned</strong><br>Please contact MWAT.</div></div>';return;}
         $today=wp_date('Y-m-d'); $entries=$this->entries(); list($current_start,$current_end)=$this->week_bounds($today);
         $target_start=$current_start; $target_end=$current_end;
-        for($i=12;$i>=1;$i--){$candidate=wp_date('Y-m-d',strtotime($current_start.' -'.($i*7).' days'));if(false===$this->weekly_entry_index($walk->ID,$candidate,$entries)){$target_start=$candidate;list($target_start,$target_end)=$this->week_bounds($candidate);break;}}
+        // Never ask a leader for attendance from before this walk existed. Migrated
+        // walks keep their historical catch-up behaviour, while newly-created MWAT
+        // walks begin from their own start/creation week.
+        $legacy_walk_id=(int)get_post_meta($walk->ID,'_mwat_geodirectory_post_id',true);
+        $walk_start=sanitize_text_field((string)get_post_meta($walk->ID,'_mwat_start_date',true));
+        $created_date=get_post_time('Y-m-d',false,$walk);
+        $first_relevant_date=$legacy_walk_id?'':($walk_start?:$created_date);
+        $first_relevant_week=$first_relevant_date?$this->week_bounds($first_relevant_date)[0]:'';
+        for($i=12;$i>=1;$i--){
+            $candidate=wp_date('Y-m-d',strtotime($current_start.' -'.($i*7).' days'));
+            if($first_relevant_week&&$candidate<$first_relevant_week)continue;
+            if(false===$this->weekly_entry_index($walk->ID,$candidate,$entries)){$target_start=$candidate;list($target_start,$target_end)=$this->week_bounds($candidate);break;}
+        }
         $existing=$this->weekly_entry_index($walk->ID,$target_start,$entries);
         $default_date=($target_start===$current_start)?$today:$target_end;
         $notice=isset($_GET['mwat_status'])?sanitize_key(wp_unslash($_GET['mwat_status'])):'';
