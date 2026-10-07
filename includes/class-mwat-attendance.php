@@ -175,7 +175,8 @@ final class MWAT_Attendance {
         echo '<div class="mwat-shell">';
         $this->header( $tab );
         if ( $this->is_manager() ) {
-            if ( 'walks' === $tab ) $this->walks_screen();
+            if ( 'manage_walks' === $tab ) $this->manage_walks_screen();
+            elseif ( 'walks' === $tab ) $this->walks_screen();
             elseif ( 'history' === $tab ) $this->history_screen();
             elseif ( 'analytics' === $tab ) $this->analytics_screen();
             elseif ( 'how' === $tab ) $this->how_it_works_screen();
@@ -195,7 +196,7 @@ final class MWAT_Attendance {
         if ( $this->is_manager() ) {
             $base = remove_query_arg( 'mwat_tab' );
             echo '<nav class="mwat-nav">';
-            foreach ( array( 'dashboard' => 'Dashboard', 'submit' => 'Add Attendance', 'walks' => 'Walk Leaders', 'history' => 'History', 'analytics' => 'Analytics', 'how' => 'How It Works', 'admin' => 'Admin' ) as $key => $label ) {
+            foreach ( array( 'dashboard' => 'Dashboard', 'manage_walks' => 'Walks', 'submit' => 'Add Attendance', 'walks' => 'Walk Leaders', 'history' => 'History', 'analytics' => 'Analytics', 'how' => 'How It Works', 'admin' => 'Admin' ) as $key => $label ) {
                 echo '<a class="' . ( $tab === $key ? 'active' : '' ) . '" href="' . esc_url( add_query_arg( 'mwat_tab', $key, $base ) ) . '">' . esc_html( $label ) . '</a>';
             }
             echo '</nav>';
@@ -344,6 +345,26 @@ final class MWAT_Attendance {
         echo '<div class="mwat-card mwat-test-tools"><h3>7–13 September demo week</h3><p class="mwat-help">Create a mixed week for demonstrating the dashboard: 15 walks not submitted, 3 cancelled and all remaining walks submitted.</p><form method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_seed_demo_week">';wp_nonce_field('mwat_seed_demo_week','mwat_nonce');echo '<button class="mwat-primary" type="submit">Create Demo Week</button></form></div>';
         echo '<div class="mwat-card mwat-test-tools"><h3>This week: 14–20 September</h3><p class="mwat-help">Create the same dashboard mix for this week: 15 not submitted, 3 cancelled and all remaining walks submitted. Test submissions are dated no later than today.</p><form method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_seed_current_demo_week">';wp_nonce_field('mwat_seed_current_demo_week','mwat_nonce');echo '<button class="mwat-primary" type="submit">Create This Week Demo</button></form></div>';
 
+    }
+
+    private function manage_walks_screen() {
+        $walks = $this->walks();
+        $published = count( $walks );
+        $drafts = post_type_exists( 'mwat_walk' ) ? (int) wp_count_posts( 'mwat_walk' )->draft : 0;
+        echo '<div class="mwat-intro"><h3>Walks</h3><p>Manage MWAT walking groups from one place. This list is also used by the public Find a Walk directory and weekly attendance.</p></div>';
+        echo '<div class="mwat-stats"><div><strong>'.$published.'</strong><span>Published walks</span></div><div><strong>'.$drafts.'</strong><span>Draft walks</span></div></div>';
+        echo '<div class="mwat-card"><div class="mwat-card-head mwat-dashboard-head"><div><h3>All walks</h3><p>These are the master walk records used across the website.</p></div><input id="mwat-manage-walk-search" class="mwat-search" type="search" placeholder="Search walks..." aria-label="Search walks"></div><div class="mwat-list">';
+        foreach ( $walks as $walk ) {
+            $leader = get_user_by( 'id', (int) $this->leader_user_id( $walk->ID ) );
+            $day = (string) get_post_meta( $walk->ID, '_mwat_day', true );
+            $towns = wp_get_post_terms( $walk->ID, 'mwat_location', array( 'fields' => 'names' ) );
+            $location = ! is_wp_error( $towns ) && $towns ? implode( ', ', array_unique( $towns ) ) : '';
+            $sub = trim( implode( ' · ', array_filter( array( $location, $day, $leader ? $leader->display_name : 'No leader assigned' ) ) ) );
+            echo '<div class="mwat-row mwat-manage-walk-row" data-search="'.esc_attr( strtolower( $walk->post_title.' '.$sub ) ).'"><div><strong>'.esc_html( $walk->post_title ).'</strong><small>'.esc_html( $sub ).'</small></div><div class="mwat-row-actions"><a class="mwat-secondary" href="'.esc_url( get_permalink( $walk->ID ) ).'" target="_blank" rel="noopener">View</a></div></div>';
+        }
+        if ( ! $walks ) echo '<div class="mwat-empty">No published walks found.</div>';
+        echo '</div><div id="mwat-manage-walk-empty" class="mwat-empty" hidden>No walks match your search.</div></div>';
+        echo '<script>(function(){var box=document.getElementById("mwat-manage-walk-search");if(!box)return;var rows=[].slice.call(document.querySelectorAll(".mwat-manage-walk-row")),empty=document.getElementById("mwat-manage-walk-empty");function draw(){var q=(box.value||"").toLowerCase().trim(),n=0;rows.forEach(function(r){var show=!q||r.dataset.search.indexOf(q)>-1;r.style.display=show?"":"none";if(show)n++;});empty.hidden=n>0;}box.addEventListener("input",draw);draw();})();</script>';
     }
 
     private function walks_screen() {
