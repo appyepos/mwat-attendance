@@ -21,7 +21,7 @@
 
 .mwat-row-actions{display:flex;align-items:center;gap:8px}.mwat-row-actions form{margin:0}.mwat-reminder-button{border:1px solid #153f2e;background:#fff;color:#153f2e;border-radius:8px;padding:7px 10px;font-size:12px;font-weight:700;cursor:pointer}.mwat-reminder-button:hover{background:#153f2e;color:#fff}@media(max-width:600px){.mwat-row-actions{align-items:flex-end;flex-direction:column}.mwat-reminder-button{white-space:nowrap}}
 
-.mwat-form-notice{margin:0 0 18px;padding:16px 18px;border-radius:10px}.mwat-form-notice strong{display:block;font-size:17px;margin-bottom:4px}.mwat-form-notice p{margin:0}.mwat-notice-warning{background:#fff7e6;border:1px solid #efd18a;color:#5c4615}
+.mwat-form-notice{margin:0 0 18px;padding:16px 18px;border-radius:10px}.mwat-form-notice strong{display:block;font-size:17px;margin-bottom:4px}.mwat-form-notice p{margin:0}.mwat-notice-warning{background:#fff0f0;border:1px solid #dc3545;color:#8b1e28;box-shadow:0 0 0 3px rgba(220,53,69,.08)}
 
 /* Demo UI tidy */
 .mwat-stats>div{min-width:0}.mwat-stats span{display:block;line-height:1.25}.mwat-history-compact{grid-template-columns:repeat(2,minmax(180px,1fr));max-width:720px}.mwat-history-compact .mwat-filter-actions{grid-column:1/-1}.mwat-periods{margin-bottom:12px}.mwat-date-range{margin:0 0 16px}.mwat-card+.mwat-card{margin-top:0}
