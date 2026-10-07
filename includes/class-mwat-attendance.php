@@ -176,7 +176,7 @@ final class MWAT_Attendance {
         $this->header( $tab );
         if ( $this->is_manager() ) {
             if ( 'manage_walks' === $tab ) $this->manage_walks_screen();
-            elseif ( 'walks' === $tab ) $this->walks_screen();
+            elseif ( 'walks' === $tab ) { if ( shortcode_exists( 'mwat_walk_leaders' ) ) echo do_shortcode( '[mwat_walk_leaders]' ); else $this->walks_screen(); }
             elseif ( 'history' === $tab ) $this->history_screen();
             elseif ( 'analytics' === $tab ) $this->analytics_screen();
             elseif ( 'how' === $tab ) $this->how_it_works_screen();
