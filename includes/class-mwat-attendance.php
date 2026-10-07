@@ -351,7 +351,11 @@ final class MWAT_Attendance {
         $walks = $this->walks();
         $published = count( $walks );
         $drafts = post_type_exists( 'mwat_walk' ) ? (int) wp_count_posts( 'mwat_walk' )->draft : 0;
-        echo '<div class="mwat-intro"><h3>Walks</h3><p>Manage MWAT walking groups from one place. This list is also used by the public Find a Walk directory and weekly attendance.</p></div>';
+        $editing = isset( $_GET['mwat_edit_walk'] ) ? absint( $_GET['mwat_edit_walk'] ) : 0;
+        echo '<div class="mwat-intro"><h3>Walks</h3><p>Manage MWAT walking groups from one place. This list is also used by the public Find a Walk directory and weekly attendance.</p><p><a class="mwat-primary" href="'.esc_url( add_query_arg( array( 'mwat_tab'=>'manage_walks', 'mwat_edit_walk'=>0 ), remove_query_arg( array( 'mwat_edit_walk', 'mwat_walk_saved' ) ) ) ).'">Add New Walk</a></p></div>';
+        if ( $editing && shortcode_exists( 'mwat_walk_manager_form' ) ) {
+            echo do_shortcode( '[mwat_walk_manager_form]' );
+        }
         echo '<div class="mwat-stats"><div><strong>'.$published.'</strong><span>Published walks</span></div><div><strong>'.$drafts.'</strong><span>Draft walks</span></div></div>';
         echo '<div class="mwat-card"><div class="mwat-card-head mwat-dashboard-head"><div><h3>All walks</h3><p>These are the master walk records used across the website.</p></div><input id="mwat-manage-walk-search" class="mwat-search" type="search" placeholder="Search walks..." aria-label="Search walks"></div><div class="mwat-list">';
         foreach ( $walks as $walk ) {
@@ -360,7 +364,8 @@ final class MWAT_Attendance {
             $towns = wp_get_post_terms( $walk->ID, 'mwat_location', array( 'fields' => 'names' ) );
             $location = ! is_wp_error( $towns ) && $towns ? implode( ', ', array_unique( $towns ) ) : '';
             $sub = trim( implode( ' · ', array_filter( array( $location, $day, $leader ? $leader->display_name : 'No leader assigned' ) ) ) );
-            echo '<div class="mwat-row mwat-manage-walk-row" data-search="'.esc_attr( strtolower( $walk->post_title.' '.$sub ) ).'"><div><strong>'.esc_html( $walk->post_title ).'</strong><small>'.esc_html( $sub ).'</small></div><div class="mwat-row-actions"><a class="mwat-secondary" href="'.esc_url( get_permalink( $walk->ID ) ).'" target="_blank" rel="noopener">View</a></div></div>';
+            $edit_url = add_query_arg( array( 'mwat_tab'=>'manage_walks', 'mwat_edit_walk'=>$walk->ID ), remove_query_arg( array( 'mwat_edit_walk', 'mwat_walk_saved' ) ) );
+            echo '<div class="mwat-row mwat-manage-walk-row" data-search="'.esc_attr( strtolower( $walk->post_title.' '.$sub ) ).'"><div><strong>'.esc_html( $walk->post_title ).'</strong><small>'.esc_html( $sub ).'</small></div><div class="mwat-row-actions"><a class="mwat-secondary" href="'.esc_url( $edit_url ).'">Edit</a><a class="mwat-secondary" href="'.esc_url( get_permalink( $walk->ID ) ).'" target="_blank" rel="noopener">View</a></div></div>';
         }
         if ( ! $walks ) echo '<div class="mwat-empty">No published walks found.</div>';
         echo '</div><div id="mwat-manage-walk-empty" class="mwat-empty" hidden>No walks match your search.</div></div>';
