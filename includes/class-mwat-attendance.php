@@ -348,27 +348,42 @@ final class MWAT_Attendance {
     }
 
     private function manage_walks_screen() {
-        $walks = $this->walks();
-        $published = count( $walks );
-        $drafts = post_type_exists( 'mwat_walk' ) ? (int) wp_count_posts( 'mwat_walk' )->draft : 0;
+        $walks = post_type_exists( 'mwat_walk' ) ? get_posts( array(
+            'post_type'      => 'mwat_walk',
+            'post_status'    => array( 'publish', 'draft' ),
+            'posts_per_page' => -1,
+            'orderby'        => 'title',
+            'order'          => 'ASC',
+        ) ) : $this->walks();
+        $published = 0; $drafts = 0; $coming_soon = 0;
+        foreach ( $walks as $walk ) {
+            $visibility = (string) get_post_meta( $walk->ID, '_mwat_visibility_status', true );
+            if ( 'coming_soon' === $visibility ) $coming_soon++;
+            elseif ( 'draft' === $walk->post_status || 'draft' === $visibility ) $drafts++;
+            else $published++;
+        }
         $show_editor = isset( $_GET['mwat_edit_walk'] );
         $editing = $show_editor ? absint( $_GET['mwat_edit_walk'] ) : 0;
-        echo '<div class="mwat-intro"><h3>Walks</h3><p>Manage MWAT walking groups from one place. This list is also used by the public Find a Walk directory and weekly attendance.</p><p><a class="mwat-primary" href="'.esc_url( add_query_arg( array( 'mwat_tab'=>'manage_walks', 'mwat_edit_walk'=>0 ), remove_query_arg( array( 'mwat_edit_walk', 'mwat_walk_saved' ) ) ) ).'">Add New Walk</a></p></div>';
-        if ( $show_editor && shortcode_exists( 'mwat_walk_manager_form' ) ) {
-            echo do_shortcode( '[mwat_walk_manager_form]' );
-        }
-        echo '<div class="mwat-stats"><div><strong>'.$published.'</strong><span>Published walks</span></div><div><strong>'.$drafts.'</strong><span>Draft walks</span></div></div>';
-        echo '<div class="mwat-card"><div class="mwat-card-head mwat-dashboard-head"><div><h3>All walks</h3><p>These are the master walk records used across the website.</p></div><input id="mwat-manage-walk-search" class="mwat-search" type="search" placeholder="Search walks..." aria-label="Search walks"></div><div class="mwat-list">';
+        echo '<div class="mwat-intro"><h3>Walks</h3><p>Manage MWAT walking groups from one place. Drafts stay private, Coming Soon walks can appear publicly before launch, and Published walks are active.</p><p><a class="mwat-primary" href="'.esc_url( add_query_arg( array( 'mwat_tab'=>'manage_walks', 'mwat_edit_walk'=>0 ), remove_query_arg( array( 'mwat_edit_walk', 'mwat_walk_saved' ) ) ) ).'">Add New Walk</a></p></div>';
+        if ( $show_editor && shortcode_exists( 'mwat_walk_manager_form' ) ) echo do_shortcode( '[mwat_walk_manager_form]' );
+        echo '<div class="mwat-stats"><div><strong>'.$published.'</strong><span>Published</span></div><div><strong>'.$coming_soon.'</strong><span>Coming Soon</span></div><div><strong>'.$drafts.'</strong><span>Drafts</span></div></div>';
+        echo '<div class="mwat-card"><div class="mwat-card-head mwat-dashboard-head"><div><h3>All walks</h3><p>Draft, Coming Soon and Published walk records.</p></div><input id="mwat-manage-walk-search" class="mwat-search" type="search" placeholder="Search walks..." aria-label="Search walks"></div><div class="mwat-list">';
         foreach ( $walks as $walk ) {
             $leader = get_user_by( 'id', (int) $this->leader_user_id( $walk->ID ) );
             $day = (string) get_post_meta( $walk->ID, '_mwat_day', true );
             $towns = wp_get_post_terms( $walk->ID, 'mwat_location', array( 'fields' => 'names' ) );
             $location = ! is_wp_error( $towns ) && $towns ? implode( ', ', array_unique( $towns ) ) : '';
+            $visibility = (string) get_post_meta( $walk->ID, '_mwat_visibility_status', true );
+            if ( 'coming_soon' === $visibility ) { $status_label='Coming Soon'; $status_class='coming-soon'; }
+            elseif ( 'draft' === $walk->post_status || 'draft' === $visibility ) { $status_label='Draft'; $status_class='draft'; }
+            else { $status_label='Published'; $status_class='published'; }
             $sub = trim( implode( ' · ', array_filter( array( $location, $day, $leader ? $leader->display_name : 'No leader assigned' ) ) ) );
             $edit_url = add_query_arg( array( 'mwat_tab'=>'manage_walks', 'mwat_edit_walk'=>$walk->ID ), remove_query_arg( array( 'mwat_edit_walk', 'mwat_walk_saved' ) ) );
-            echo '<div class="mwat-row mwat-manage-walk-row" data-search="'.esc_attr( strtolower( $walk->post_title.' '.$sub ) ).'"><div><strong>'.esc_html( $walk->post_title ).'</strong><small>'.esc_html( $sub ).'</small></div><div class="mwat-row-actions"><a class="mwat-secondary" href="'.esc_url( $edit_url ).'">Edit</a><a class="mwat-secondary" href="'.esc_url( get_permalink( $walk->ID ) ).'" target="_blank" rel="noopener">View</a></div></div>';
+            echo '<div class="mwat-row mwat-manage-walk-row" data-search="'.esc_attr( strtolower( $walk->post_title.' '.$sub.' '.$status_label ) ).'"><div><strong>'.esc_html( $walk->post_title ).' <span class="mwat-walk-status mwat-walk-status-'.esc_attr($status_class).'">'.esc_html($status_label).'</span></strong><small>'.esc_html( $sub ).'</small></div><div class="mwat-row-actions"><a class="mwat-secondary" href="'.esc_url( $edit_url ).'">Edit</a>';
+            if ( 'draft' !== $walk->post_status ) echo '<a class="mwat-secondary" href="'.esc_url( get_permalink( $walk->ID ) ).'" target="_blank" rel="noopener">View</a>';
+            echo '</div></div>';
         }
-        if ( ! $walks ) echo '<div class="mwat-empty">No published walks found.</div>';
+        if ( ! $walks ) echo '<div class="mwat-empty">No walks found.</div>';
         echo '</div><div id="mwat-manage-walk-empty" class="mwat-empty" hidden>No walks match your search.</div></div>';
         echo '<script>(function(){var box=document.getElementById("mwat-manage-walk-search");if(!box)return;var rows=[].slice.call(document.querySelectorAll(".mwat-manage-walk-row")),empty=document.getElementById("mwat-manage-walk-empty");function draw(){var q=(box.value||"").toLowerCase().trim(),n=0;rows.forEach(function(r){var show=!q||r.dataset.search.indexOf(q)>-1;r.style.display=show?"":"none";if(show)n++;});empty.hidden=n>0;}box.addEventListener("input",draw);draw();})();</script>';
     }
