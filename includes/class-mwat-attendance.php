@@ -14,6 +14,7 @@ final class MWAT_Attendance {
         add_action( 'admin_post_mwat_assign_leader', array( $this, 'assign_leader' ) );
         add_action( 'admin_post_mwat_create_leader', array( $this, 'create_leader' ) );
         add_action( 'admin_post_mwat_regenerate_leader_link', array( $this, 'regenerate_leader_link' ) );
+        add_action( 'admin_post_mwat_walk_send_attendance_link', array( $this, 'walk_send_attendance_link' ) );
         add_action( 'admin_post_mwat_send_test_reminder', array( $this, 'send_test_reminder' ) );
         add_action( 'admin_post_mwat_save_entry', array( $this, 'save_entry' ) );
         add_action( 'admin_post_mwat_import_test_leaders', array( $this, 'import_test_leaders' ) );
@@ -157,6 +158,12 @@ final class MWAT_Attendance {
         $subject='Your MWAT weekly attendance link';
         $message="Hi {$user->display_name},\n\nYou have been set up as the Walk Leader for {$walk->post_title}.\n\nEach week, after your walk, please use your personal link below to send your attendance numbers:\n\n{$link}\n\nPlease save or bookmark this link. You will use the same link every week.\n\nYou will be asked for the walk date, whether the walk took place, attendees, new attendees and dogs. If the walk is cancelled, please still submit the form and select the cancellation reason.\n\nThank you for supporting Men Walking & Talking.";
         return wp_mail($user->user_email,$subject,$message);
+    }
+
+    public function walk_send_attendance_link() {
+        if(!$this->is_manager())wp_die('You do not have permission to send attendance links.');
+        $walk_id=absint($_POST['walk_id']??0);check_admin_referer('mwat_walk_send_attendance_link_'.$walk_id,'mwat_nonce');$leader_id=$this->leader_user_id($walk_id);if(!$leader_id)wp_die('This walk does not have a main Walk Leader assigned.');
+        $sent=$this->send_leader_welcome($leader_id,$walk_id);$return=esc_url_raw(wp_unslash($_POST['return_url']??$this->attendance_page_url()));wp_safe_redirect(add_query_arg('mwat_attendance_link_sent',$sent?'1':'0',$return));exit;
     }
 
     public function portal() {
@@ -365,6 +372,7 @@ final class MWAT_Attendance {
         $show_editor = isset( $_GET['mwat_edit_walk'] );
         $editing = $show_editor ? absint( $_GET['mwat_edit_walk'] ) : 0;
         echo '<div class="mwat-intro"><h3>Walks</h3><p>Manage MWAT walking groups from one place. Drafts stay private, Coming Soon walks can appear publicly before launch, and Published walks are active.</p><p><a class="mwat-primary" href="'.esc_url( add_query_arg( array( 'mwat_tab'=>'manage_walks', 'mwat_edit_walk'=>0 ), remove_query_arg( array( 'mwat_edit_walk', 'mwat_walk_saved' ) ) ) ).'">Add New Walk</a></p></div>';
+        if(isset($_GET['mwat_attendance_link_sent']))echo '<div class="'.('1'===$_GET['mwat_attendance_link_sent']?'mwat-success':'mwat-empty').'">'.('1'===$_GET['mwat_attendance_link_sent']?'✓ Attendance link emailed to the main Walk Leader.':'The attendance email could not be sent.').'</div>';
         $notes_walk = isset( $_GET['mwat_walk_notes'] ) ? absint( $_GET['mwat_walk_notes'] ) : 0;
         if ( $notes_walk && shortcode_exists( 'mwat_walk_notes' ) ) echo do_shortcode( '[mwat_walk_notes]' );
         elseif ( $show_editor && shortcode_exists( 'mwat_walk_manager_form' ) ) echo do_shortcode( '[mwat_walk_manager_form]' );
@@ -383,13 +391,14 @@ final class MWAT_Attendance {
             $edit_url = add_query_arg( array( 'mwat_tab'=>'manage_walks', 'mwat_edit_walk'=>$walk->ID ), remove_query_arg( array( 'mwat_edit_walk', 'mwat_walk_saved', 'mwat_walk_notes', 'mwat_notes_saved' ) ) );
             $notes_url = add_query_arg( array( 'mwat_tab'=>'manage_walks', 'mwat_walk_notes'=>$walk->ID ), remove_query_arg( array( 'mwat_edit_walk', 'mwat_walk_saved', 'mwat_walk_notes', 'mwat_notes_saved' ) ) );
             $display_status = 'Published' === $status_label ? 'Live' : $status_label;
+            $attendance_status='Not active';$attendance_class='waiting';$attendance_link='';$leader_id=$leader?(int)$leader->ID:0;if('published'===$status_class&&$leader_id){$idx=$this->weekly_entry_index($walk->ID,wp_date('Y-m-d'),$this->entries());$attendance_status=(false!==$idx)?'Attendance submitted':'Attendance waiting';$attendance_class=(false!==$idx)?'done':'waiting';$attendance_link=$this->leader_link($leader_id);}
             echo '<div class="mwat-row mwat-manage-walk-row" data-status="'.esc_attr($status_class).'" data-search="'.esc_attr( strtolower( $walk->post_title.' '.$sub.' '.$status_label ) ).'"><div><strong>'.esc_html( $walk->post_title ).'</strong><small>'.esc_html( $sub ).'</small></div><div class="mwat-row-actions"><span class="mwat-walk-status mwat-walk-status-'.esc_attr($status_class).'">'.esc_html($display_status).'</span><a class="mwat-secondary" href="'.esc_url( $edit_url ).'">Edit</a><a class="mwat-secondary" href="'.esc_url( $notes_url ).'">Notes</a>';
             if ( 'draft' !== $walk->post_status ) echo '<a class="mwat-secondary" href="'.esc_url( get_permalink( $walk->ID ) ).'" target="_blank" rel="noopener">View</a>';
-            echo '</div></div>';
+            echo '</div>';if('published'===$status_class){echo '<div class="mwat-walk-attendance"><span class="mwat-status '.esc_attr($attendance_class).'">'.esc_html($attendance_status).'</span>';if($leader_id){echo '<input class="mwat-attendance-link-field" type="text" readonly value="'.esc_attr($attendance_link).'" aria-label="Attendance link"><button type="button" class="mwat-secondary mwat-copy-attendance-link" data-link="'.esc_attr($attendance_link).'">Copy Link</button><form class="mwat-inline-form" method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_walk_send_attendance_link"><input type="hidden" name="walk_id" value="'.(int)$walk->ID.'"><input type="hidden" name="return_url" value="'.esc_attr(remove_query_arg('mwat_attendance_link_sent')).'">';wp_nonce_field('mwat_walk_send_attendance_link_'.$walk->ID,'mwat_nonce');echo '<button class="mwat-secondary" type="submit">Email Link</button></form>';}else echo '<small>Assign a main Walk Leader to enable attendance.</small>';echo '</div>';}echo '</div>';
         }
         if ( ! $walks ) echo '<div class="mwat-empty">No walks found.</div>';
         echo '</div><div id="mwat-manage-walk-empty" class="mwat-empty" hidden>No walks match your search.</div></div>';
-        echo '<script>(function(){var box=document.getElementById("mwat-manage-walk-search");if(!box)return;var rows=[].slice.call(document.querySelectorAll(".mwat-manage-walk-row")),filters=[].slice.call(document.querySelectorAll(".mwat-walk-filter")),empty=document.getElementById("mwat-manage-walk-empty"),status="all";function draw(){var q=(box.value||"").toLowerCase().trim(),n=0;rows.forEach(function(r){var show=(!q||r.dataset.search.indexOf(q)>-1)&&(status==="all"||r.dataset.status===status);r.style.display=show?"":"none";if(show)n++;});empty.hidden=n>0;}filters.forEach(function(b){b.addEventListener("click",function(){status=b.dataset.status;filters.forEach(function(x){x.classList.toggle("is-active",x===b);});draw();});});box.addEventListener("input",draw);draw();})();</script>';
+        echo '<script>(function(){document.querySelectorAll(".mwat-copy-attendance-link").forEach(function(b){b.addEventListener("click",function(){var v=this.getAttribute("data-link");if(navigator.clipboard){navigator.clipboard.writeText(v).then(function(){b.textContent="Copied";setTimeout(function(){b.textContent="Copy Link";},1500);});}else{var i=this.parentNode.querySelector(".mwat-attendance-link-field");i.select();document.execCommand("copy");}});});var box=document.getElementById("mwat-manage-walk-search");if(!box)return;var rows=[].slice.call(document.querySelectorAll(".mwat-manage-walk-row")),filters=[].slice.call(document.querySelectorAll(".mwat-walk-filter")),empty=document.getElementById("mwat-manage-walk-empty"),status="all";function draw(){var q=(box.value||"").toLowerCase().trim(),n=0;rows.forEach(function(r){var show=(!q||r.dataset.search.indexOf(q)>-1)&&(status==="all"||r.dataset.status===status);r.style.display=show?"":"none";if(show)n++;});empty.hidden=n>0;}filters.forEach(function(b){b.addEventListener("click",function(){status=b.dataset.status;filters.forEach(function(x){x.classList.toggle("is-active",x===b);});draw();});});box.addEventListener("input",draw);draw();})();</script>';
     }
 
     private function walks_screen() {
