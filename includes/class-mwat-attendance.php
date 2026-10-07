@@ -222,6 +222,15 @@ final class MWAT_Attendance {
         foreach($entries as $entry) {
             if(($entry['date']??'')<$week_start || ($entry['date']??'')>$week_end || empty($entry['walk_id'])) continue;
             $wid=(int)$entry['walk_id']; $type=($entry['type']??'attendance');
+            // Entries created before the MWAT Walks migration contain the old
+            // GeoDirectory post ID. Map those onto the current walk ID so the
+            // dashboard count and individual walk row always agree.
+            foreach ( $walks as $walk ) {
+                if ( $this->walk_id_matches( $wid, $walk->ID ) ) {
+                    $wid = (int) $walk->ID;
+                    break;
+                }
+            }
             $states[$wid]=$entry;
         }
         foreach($states as $entry) {
