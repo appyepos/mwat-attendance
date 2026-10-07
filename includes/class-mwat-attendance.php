@@ -351,9 +351,10 @@ final class MWAT_Attendance {
         $walks = $this->walks();
         $published = count( $walks );
         $drafts = post_type_exists( 'mwat_walk' ) ? (int) wp_count_posts( 'mwat_walk' )->draft : 0;
-        $editing = isset( $_GET['mwat_edit_walk'] ) ? absint( $_GET['mwat_edit_walk'] ) : 0;
+        $show_editor = isset( $_GET['mwat_edit_walk'] );
+        $editing = $show_editor ? absint( $_GET['mwat_edit_walk'] ) : 0;
         echo '<div class="mwat-intro"><h3>Walks</h3><p>Manage MWAT walking groups from one place. This list is also used by the public Find a Walk directory and weekly attendance.</p><p><a class="mwat-primary" href="'.esc_url( add_query_arg( array( 'mwat_tab'=>'manage_walks', 'mwat_edit_walk'=>0 ), remove_query_arg( array( 'mwat_edit_walk', 'mwat_walk_saved' ) ) ) ).'">Add New Walk</a></p></div>';
-        if ( $editing && shortcode_exists( 'mwat_walk_manager_form' ) ) {
+        if ( $show_editor && shortcode_exists( 'mwat_walk_manager_form' ) ) {
             echo do_shortcode( '[mwat_walk_manager_form]' );
         }
         echo '<div class="mwat-stats"><div><strong>'.$published.'</strong><span>Published walks</span></div><div><strong>'.$drafts.'</strong><span>Draft walks</span></div></div>';
