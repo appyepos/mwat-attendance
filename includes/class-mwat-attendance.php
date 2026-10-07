@@ -365,7 +365,9 @@ final class MWAT_Attendance {
         $show_editor = isset( $_GET['mwat_edit_walk'] );
         $editing = $show_editor ? absint( $_GET['mwat_edit_walk'] ) : 0;
         echo '<div class="mwat-intro"><h3>Walks</h3><p>Manage MWAT walking groups from one place. Drafts stay private, Coming Soon walks can appear publicly before launch, and Published walks are active.</p><p><a class="mwat-primary" href="'.esc_url( add_query_arg( array( 'mwat_tab'=>'manage_walks', 'mwat_edit_walk'=>0 ), remove_query_arg( array( 'mwat_edit_walk', 'mwat_walk_saved' ) ) ) ).'">Add New Walk</a></p></div>';
-        if ( $show_editor && shortcode_exists( 'mwat_walk_manager_form' ) ) echo do_shortcode( '[mwat_walk_manager_form]' );
+        $notes_walk = isset( $_GET['mwat_walk_notes'] ) ? absint( $_GET['mwat_walk_notes'] ) : 0;
+        if ( $notes_walk && shortcode_exists( 'mwat_walk_notes' ) ) echo do_shortcode( '[mwat_walk_notes]' );
+        elseif ( $show_editor && shortcode_exists( 'mwat_walk_manager_form' ) ) echo do_shortcode( '[mwat_walk_manager_form]' );
         echo '<div class="mwat-stats"><div><strong>'.$published.'</strong><span>Published</span></div><div><strong>'.$coming_soon.'</strong><span>Coming Soon</span></div><div><strong>'.$drafts.'</strong><span>Drafts</span></div></div>';
         echo '<div class="mwat-card"><div class="mwat-card-head mwat-dashboard-head"><div><h3>All walks</h3><p>Manage live, coming soon and draft walks.</p></div><input id="mwat-manage-walk-search" class="mwat-search" type="search" placeholder="Search walks..." aria-label="Search walks"></div><div class="mwat-walk-filters" role="group" aria-label="Filter walks"><button type="button" class="mwat-walk-filter is-active" data-status="all">All <span>'.count($walks).'</span></button><button type="button" class="mwat-walk-filter" data-status="published">Live <span>'.$published.'</span></button><button type="button" class="mwat-walk-filter" data-status="coming-soon">Coming Soon <span>'.$coming_soon.'</span></button><button type="button" class="mwat-walk-filter" data-status="draft">Draft <span>'.$drafts.'</span></button></div><div class="mwat-list">';
         foreach ( $walks as $walk ) {
@@ -378,9 +380,10 @@ final class MWAT_Attendance {
             elseif ( 'draft' === $walk->post_status || 'draft' === $visibility ) { $status_label='Draft'; $status_class='draft'; }
             else { $status_label='Published'; $status_class='published'; }
             $sub = trim( implode( ' · ', array_filter( array( $location, $day, $leader ? $leader->display_name : 'No leader assigned' ) ) ) );
-            $edit_url = add_query_arg( array( 'mwat_tab'=>'manage_walks', 'mwat_edit_walk'=>$walk->ID ), remove_query_arg( array( 'mwat_edit_walk', 'mwat_walk_saved' ) ) );
+            $edit_url = add_query_arg( array( 'mwat_tab'=>'manage_walks', 'mwat_edit_walk'=>$walk->ID ), remove_query_arg( array( 'mwat_edit_walk', 'mwat_walk_saved', 'mwat_walk_notes', 'mwat_notes_saved' ) ) );
+            $notes_url = add_query_arg( array( 'mwat_tab'=>'manage_walks', 'mwat_walk_notes'=>$walk->ID ), remove_query_arg( array( 'mwat_edit_walk', 'mwat_walk_saved', 'mwat_walk_notes', 'mwat_notes_saved' ) ) );
             $display_status = 'Published' === $status_label ? 'Live' : $status_label;
-            echo '<div class="mwat-row mwat-manage-walk-row" data-status="'.esc_attr($status_class).'" data-search="'.esc_attr( strtolower( $walk->post_title.' '.$sub.' '.$status_label ) ).'"><div><strong>'.esc_html( $walk->post_title ).'</strong><small>'.esc_html( $sub ).'</small></div><div class="mwat-row-actions"><span class="mwat-walk-status mwat-walk-status-'.esc_attr($status_class).'">'.esc_html($display_status).'</span><a class="mwat-secondary" href="'.esc_url( $edit_url ).'">Edit</a>';
+            echo '<div class="mwat-row mwat-manage-walk-row" data-status="'.esc_attr($status_class).'" data-search="'.esc_attr( strtolower( $walk->post_title.' '.$sub.' '.$status_label ) ).'"><div><strong>'.esc_html( $walk->post_title ).'</strong><small>'.esc_html( $sub ).'</small></div><div class="mwat-row-actions"><span class="mwat-walk-status mwat-walk-status-'.esc_attr($status_class).'">'.esc_html($display_status).'</span><a class="mwat-secondary" href="'.esc_url( $edit_url ).'">Edit</a><a class="mwat-secondary" href="'.esc_url( $notes_url ).'">Notes</a>';
             if ( 'draft' !== $walk->post_status ) echo '<a class="mwat-secondary" href="'.esc_url( get_permalink( $walk->ID ) ).'" target="_blank" rel="noopener">View</a>';
             echo '</div></div>';
         }
