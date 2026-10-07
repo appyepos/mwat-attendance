@@ -95,6 +95,16 @@ final class MWAT_Attendance {
         return false;
     }
 
+    private function canonical_walk_id( $stored_id ) {
+        $stored_id=(int)$stored_id;if(!$stored_id)return 0;if('mwat_walk'===get_post_type($stored_id))return $stored_id;
+        $walks=get_posts(array('post_type'=>'mwat_walk','post_status'=>array('publish','draft'),'numberposts'=>1,'fields'=>'ids','meta_key'=>'_mwat_geodirectory_post_id','meta_value'=>$stored_id));
+        return $walks?(int)$walks[0]:$stored_id;
+    }
+
+    private function walk_title_from_entry( $stored_id ) {
+        $id=$this->canonical_walk_id($stored_id);$title=$id?get_the_title($id):'';return $title?:'Unknown walk';
+    }
+
     private function leader_user_id( $walk_id ) {
         $leader_id = (int) get_post_meta( $walk_id, '_mwat_leader_user', true );
         if ( $leader_id ) return $leader_id;
@@ -466,7 +476,7 @@ final class MWAT_Attendance {
             $date=$entry['date']??'';
             if($filters['from']&&$date<$filters['from']) return false;
             if($filters['to']&&$date>$filters['to']) return false;
-            if($filters['walk']&&(int)($entry['walk_id']??0)!==$filters['walk']) return false;
+            if($filters['walk']&&!$this->walk_id_matches((int)($entry['walk_id']??0),$filters['walk'])) return false;
             $type=($entry['type']??'attendance')==='cancelled'?'cancelled':'submitted';
             if($filters['status']!=='all'&&$filters['status']!==$type) return false;
             return true;
@@ -484,7 +494,7 @@ final class MWAT_Attendance {
         else {$preset='week';$from=$this_week_start;$to=$today;}
         $filtered=array_values(array_filter($entries,function($e)use($from,$to){$d=$e['date']??'';return $d>=$from&&$d<=$to;}));
         $att=0;$new=0;$dogs=0;$cancel=0;$submitted=0;$by_walk=array();$reasons=array();$weekly=array();
-        foreach($filtered as $e){$type=$e['type']??'attendance';$wid=(int)($e['walk_id']??0);$week=wp_date('Y-m-d',strtotime(($e['date']??$today).' monday this week'));if(!isset($weekly[$week]))$weekly[$week]=array('att'=>0,'new'=>0,'responses'=>0);
+        foreach($filtered as $e){$type=$e['type']??'attendance';$wid=$this->canonical_walk_id((int)($e['walk_id']??0));$week=wp_date('Y-m-d',strtotime(($e['date']??$today).' monday this week'));if(!isset($weekly[$week]))$weekly[$week]=array('att'=>0,'new'=>0,'responses'=>0);
             if('cancelled'===$type){$cancel++;$r=$this->cancellation_label($e);$reasons[$r]=($reasons[$r]??0)+1;}else{$submitted++;$a=(int)($e['attendees']??0);$att+=$a;$enew=(int)($e['new_attendees']??0);$new+=$enew;$weekly[$week]['new']+=$enew;$dogs+=(int)($e['dogs']??0);$by_walk[$wid]=($by_walk[$wid]??0)+$a;$weekly[$week]['att']+=$a;}$weekly[$week]['responses']++;}
         arsort($by_walk); arsort($reasons); ksort($weekly); $responses=count($filtered); $avg=$submitted?round($att/$submitted,1):0;
         echo '<div class="mwat-intro"><h3>Analytics</h3><p>See attendance trends and how walks are performing over time.</p></div>';
@@ -510,7 +520,7 @@ final class MWAT_Attendance {
         if(isset($_GET['mwat_demo_status'])&&'done'===sanitize_key(wp_unslash($_GET['mwat_demo_status']))) echo '<div class="mwat-success">✓ Demo week created: '.absint($_GET['submitted']??0).' submitted, '.absint($_GET['cancelled']??0).' cancelled and '.absint($_GET['waiting']??0).' not submitted.</div>';
         if(isset($_GET['mwat_current_demo_status'])&&'done'===sanitize_key(wp_unslash($_GET['mwat_current_demo_status']))) echo '<div class="mwat-success">✓ This week created: '.absint($_GET['submitted']??0).' submitted, '.absint($_GET['cancelled']??0).' cancelled and '.absint($_GET['waiting']??0).' not submitted.</div>'; 
         if($edit>=0&&isset($entries[$edit])) {
-            $entry=$entries[$edit]; $cancelled=($entry['type']??'attendance')==='cancelled'; $walk=get_the_title((int)($entry['walk_id']??0));
+            $entry=$entries[$edit]; $cancelled=($entry['type']??'attendance')==='cancelled'; $walk=$this->walk_title_from_entry((int)($entry['walk_id']??0));
             echo '<div class="mwat-card mwat-edit-card"><div class="mwat-card-head"><div><h3>Edit weekly response</h3><p>'.esc_html($walk).'</p></div><a class="mwat-secondary" href="'.esc_url(remove_query_arg('mwat_edit')).'">Cancel edit</a></div><form class="mwat-form" method="post" action="'.esc_url(admin_url('admin-post.php')).'"><input type="hidden" name="action" value="mwat_save_entry"><input type="hidden" name="entry_index" value="'.$edit.'">';
             wp_nonce_field('mwat_save_entry','mwat_nonce');
             echo '<label>Walk date<input type="date" name="walk_date" value="'.esc_attr($entry['date']??'').'" required></label><fieldset class="mwat-took-place"><legend>Did the walk take place?</legend><label><input type="radio" name="walk_status" value="attendance" '.checked(!$cancelled,true,false).'> <span><strong>Yes</strong></span></label><label><input type="radio" name="walk_status" value="cancelled" '.checked($cancelled,true,false).'> <span><strong>No — walk cancelled</strong></span></label></fieldset>';
@@ -548,7 +558,7 @@ final class MWAT_Attendance {
         $filters=$this->history_filters(); $entries=$this->filtered_entries($this->entries(),$filters);
         nocache_headers(); header('Content-Type: text/csv; charset=utf-8'); header('Content-Disposition: attachment; filename="mwat-attendance-'.wp_date('Y-m-d').'.csv"');
         $out=fopen('php://output','w'); fputcsv($out,array('Walk Date','Walk','Status','Attendees','New Attendees','Dogs','Cancellation Reason','Submitted By','Submitted At','Edited At'));
-        foreach($entries as $entry){$can=($entry['type']??'attendance')==='cancelled';$user=!empty($entry['user_id'])?get_user_by('id',(int)$entry['user_id']):false;fputcsv($out,array($entry['date']??'',!empty($entry['walk_id'])?get_the_title((int)$entry['walk_id']):($entry['location']??''),$can?'Cancelled':'Submitted',$can?'':(int)($entry['attendees']??0),$can?'':(int)($entry['new_attendees']??0),$can?'':(int)($entry['dogs']??0),$can?$this->cancellation_label($entry):'',$user?$user->display_name:'Legacy entry',$entry['submitted_at']??'',$entry['edited_at']??''));}
+        foreach($entries as $entry){$can=($entry['type']??'attendance')==='cancelled';$user=!empty($entry['user_id'])?get_user_by('id',(int)$entry['user_id']):false;fputcsv($out,array($entry['date']??'',!empty($entry['walk_id'])?$this->walk_title_from_entry((int)$entry['walk_id']):($entry['location']??''),$can?'Cancelled':'Submitted',$can?'':(int)($entry['attendees']??0),$can?'':(int)($entry['new_attendees']??0),$can?'':(int)($entry['dogs']??0),$can?$this->cancellation_label($entry):'',$user?$user->display_name:'Legacy entry',$entry['submitted_at']??'',$entry['edited_at']??''));}
         fclose($out); exit;
     }
 
